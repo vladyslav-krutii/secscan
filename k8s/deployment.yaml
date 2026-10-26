@@ -26,7 +26,7 @@ spec:
       containers:
         - name: api
           # Pushed by CI to GHCR (see .github/workflows/ci.yml).
-          image: ghcr.io/vladysalvkrutii/secscan:latest
+          image: ghcr.io/vladyslav-krutii/secscan:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
