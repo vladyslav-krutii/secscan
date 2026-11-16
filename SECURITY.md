@@ -15,3 +15,7 @@ please open a GitHub issue or contact the maintainer rather than exploiting it.
 - The scanner has an SSRF guard: only `http`/`https` on ports 80/443, only
   globally routable addresses, every redirect re-validated, and the connection
   pinned to the validated IP. See "Security write-up" in the README.
+- `/scan` is protected against abuse: per-client rate limit (`429`), a cap on
+  concurrent scans (`503`) and an overall deadline per scan (`504`).
+  `X-Forwarded-For` is only believed from configured proxies. See "Abuse
+  protection" in the README.

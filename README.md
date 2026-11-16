@@ -172,6 +172,9 @@ The API exports Prometheus metrics:
 - `secscan_scan_duration_seconds` — scan latency histogram
 - `secscan_scan_errors_total` — failed scans
 - `secscan_blocked_targets_total` — scans refused by the SSRF guard
+- `secscan_rate_limited_total` — requests refused with `429` (per-client rate limit)
+- `secscan_busy_rejections_total` — requests refused with `503` (all scan slots in use)
+- `secscan_scan_deadline_exceeded_total` — scans aborted with `504` (overall deadline)
 
 Prometheus scrapes them and the Grafana dashboard (auto-provisioned) shows total
 scans, error rate, scans/sec by grade and p95 latency.
@@ -183,6 +186,8 @@ scans, error rate, scans/sec by grade and p95 latency.
 - Minimal `python:3.12-slim` base, multi-stage build (no build tools in final image)
 - Trivy image-scanning gate in CI + weekly Dependabot updates
 - SSRF guard on the scan target (see the write-up below)
+- Per-client rate limit, concurrency cap and an overall scan deadline
+  (see "Abuse protection" below)
 
 ## Security write-up: SSRF in `/scan`
 
@@ -282,6 +287,81 @@ redirect cap, connection pinning, a rebinding resolver, and the unread body.
 - This is one layer. A Kubernetes `NetworkPolicy` that denies egress to
   cluster and metadata ranges is planned as a second, independent layer.
 
+## Abuse protection
+
+`/scan` makes the server do network work on behalf of an anonymous caller, so
+it is the endpoint worth protecting. `/health` and `/metrics` are not limited:
+probes and Prometheus call them far more often than any scan limit allows.
+
+A request to `/scan` passes the gates in this order, cheapest first, and a
+request refused by one gate never reaches the next:
+
+| # | Gate                 | Refusal                     | Why                                                   |
+| - | -------------------- | --------------------------- | ----------------------------------------------------- |
+| 1 | Per-client rate limit | `429` + `Retry-After`      | one client cannot use the scanner as a traffic source |
+| 2 | Free scan slot       | `503` + `Retry-After`       | bounded number of outbound scans per process          |
+| 3 | SSRF validation      | `400 Blocked target: ...`   | see the write-up above                                |
+| 4 | Overall deadline     | `504`                       | a slow target cannot hold a slot indefinitely         |
+
+- **Rate limit** ([slowapi](https://github.com/laurentS/slowapi), moving
+  window). Every request counts, including the ones the SSRF guard refuses:
+  probing internal names is exactly the traffic to slow down.
+- **Concurrency cap**. When all slots are taken the request is refused at once
+  instead of queued. A queue would keep connections open and let a client stack
+  up work for later.
+- **Deadline**. One clock covers every DNS lookup and redirect hop of a scan.
+  Before, only per-hop timeouts existed, so a slow redirect chain could run for
+  about 6 hops x (5 s DNS + 5 s HTTP). When the deadline fires the task is
+  cancelled, the open response stream and the HTTP client are closed, and the
+  slot is released.
+
+### Who is "the client"? (`X-Forwarded-For`)
+
+The rate limit is keyed on the client address, and that address must be one the
+client cannot choose.
+
+- By default the address of the **TCP peer** is used and `X-Forwarded-For` is
+  ignored. Otherwise a client could send a different header value with every
+  request and never be limited.
+- Behind a reverse proxy (the Ingress) every request arrives from the proxy, so
+  all clients would share a single bucket. `SECSCAN_TRUSTED_PROXIES` lists the
+  proxy addresses; only when the peer is in that list is `X-Forwarded-For` read.
+- The header is walked **right to left** and the first address that is not a
+  trusted proxy is the client. A proxy appends the peer it saw, so only the
+  right-hand entries were written by our own infrastructure; everything further
+  left was supplied by the client and is ignored.
+
+### Configuration
+
+Read once at start-up. An unparsable value stops the process instead of
+silently falling back to a default.
+
+| Variable                        | Default     | Meaning                                                        |
+| ------------------------------- | ----------- | -------------------------------------------------------------- |
+| `SECSCAN_RATE_LIMIT`            | `10/minute` | Scans per client address (`limits` notation, e.g. `100/hour`)  |
+| `SECSCAN_TRUSTED_PROXIES`       | *(empty)*   | Comma-separated IPs/CIDRs whose `X-Forwarded-For` is believed  |
+| `SECSCAN_SCAN_DEADLINE_SECONDS` | `10`        | Wall-clock budget for one scan, all hops and DNS included      |
+| `SECSCAN_MAX_CONCURRENT_SCANS`  | `10`        | Outbound scans running at once, per process                    |
+
+### Known limits
+
+- **Counters live in process memory.** With N replicas each pod counts on its
+  own, so the effective limit is about N x `SECSCAN_RATE_LIMIT`, and a restart
+  resets it. The fix is a shared store (Redis, which slowapi supports through
+  `storage_uri`); left out to keep the deployment dependency-free.
+- **`X-Forwarded-For` is only as trustworthy as `SECSCAN_TRUSTED_PROXIES`.**
+  Anything inside the listed ranges can claim any client address.
+  `k8s/deployment.yaml` currently sets it to the whole pod CIDR
+  (`10.244.0.0/16`), which trusts **every pod in the cluster**, not just the
+  Ingress. To be narrowed in Phase 5: trust the ingress controller only, and
+  add a `NetworkPolicy` so that nothing else can reach the API at all.
+- The limit is per address: clients behind one NAT share a bucket, and an IPv6
+  user with a whole `/64` has many addresses.
+- A cancelled DNS lookup cannot be interrupted: `getaddrinfo` keeps its worker
+  thread until the OS resolver gives up. The concurrency cap bounds how many
+  can pile up.
+- The concurrency cap is per process, like the rate limit.
+
 ---
 
 ## Project structure
@@ -290,7 +370,9 @@ redirect cap, connection pinning, a rebinding resolver, and the unread body.
 secscan/
 ├── app/                  # FastAPI application
 │   ├── main.py           # routes, logging, metrics, response models
-│   ├── scanner.py        # header fetch + scoring
+│   ├── scanner.py        # header fetch + scoring, SSRF guard, deadline
+│   ├── abuse.py          # client identity, rate limiter, scan slots
+│   ├── config.py         # settings from environment variables
 │   └── metrics.py        # Prometheus metrics
 ├── tests/                # pytest unit/API tests
 ├── monitoring/           # Prometheus + Grafana provisioning
