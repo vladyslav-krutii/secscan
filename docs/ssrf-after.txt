@@ -1,0 +1,27 @@
+== http://prometheus:9090
+{"detail":"Blocked target: destination port is not allowed (only 80 and 443)"}
+== http://grafana:3000/login
+{"detail":"Blocked target: destination port is not allowed (only 80 and 443)"}
+== http://127.0.0.1:8000/health
+{"detail":"Blocked target: destination port is not allowed (only 80 and 443)"}
+== http://api:8000/metrics
+{"detail":"Blocked target: destination port is not allowed (only 80 and 443)"}
+== http://prometheus
+{"detail":"Blocked target: destination is not a public internet address"}
+== http://169.254.169.254
+{"detail":"Blocked target: destination is not a public internet address"}
+== http://2130706433
+{"detail":"Blocked target: destination is not a public internet address"}
+== https://httpbin.org/redirect-to?url=http://127.0.0.1/
+{"url":"https://httpbin.org/redirect-to?url=http://127.0.0.1/","status_code":403,"score":15,"grade":"F","headers":[{"name":"strict-transport-security"
+== https://github.com
+{"url":"https://github.com","status_code":200,"score":90,"grade":"A","headers":[{"name":"strict-transport-security","present":true,"value":"max-age=31
+== https://postman-echo.com/redirect-to?url=http://127.0.0.1/
+{"detail":"Blocked target: redirect target is not a public internet address"}
+== https://postman-echo.com/redirect-to?url=http://169.254.169.254/latest/meta-data/
+{"detail":"Blocked target: redirect target is not a public internet address"}
+== https://postman-echo.com/redirect-to?url=http://prometheus/
+{"detail":"Blocked target: redirect target is not a public internet address"}
+== https://postman-echo.com/redirect-to?url=https://github.com/
+{"url":"https://postman-echo.com/redirect-to?url=https://github.com/","status_code":200,"score":90,"grade":"A","headers":[{"name":"strict-transport-se
+

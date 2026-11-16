@@ -12,5 +12,6 @@ please open a GitHub issue or contact the maintainer rather than exploiting it.
 - Images are scanned with **Trivy** in CI; the pipeline fails on CRITICAL
   vulnerabilities.
 - Dependencies are kept current via **Dependabot**.
-- The scanner only accepts `http`/`https` targets to avoid local-file / scheme
-  abuse.
+- The scanner has an SSRF guard: only `http`/`https` on ports 80/443, only
+  globally routable addresses, every redirect re-validated, and the connection
+  pinned to the validated IP. See "Security write-up" in the README.
