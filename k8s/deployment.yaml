@@ -30,6 +30,22 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
+          env:
+            # Behind the Ingress every request arrives from the ingress
+            # controller pod, so without this all clients would share one
+            # rate-limit bucket. Set it to the address range of the ingress
+            # controller pods -- kind's default pod CIDR is used here.
+            # Trade-off: any pod in that range can then choose its own
+            # X-Forwarded-For; a NetworkPolicy that only admits the ingress
+            # controller removes that.
+            - name: SECSCAN_TRUSTED_PROXIES
+              value: "10.244.0.0/16"
+            - name: SECSCAN_RATE_LIMIT
+              value: "10/minute"
+            - name: SECSCAN_SCAN_DEADLINE_SECONDS
+              value: "10"
+            - name: SECSCAN_MAX_CONCURRENT_SCANS
+              value: "10"
           resources:
             requests:
               cpu: "50m"

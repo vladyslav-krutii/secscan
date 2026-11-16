@@ -5,6 +5,16 @@ services:
     container_name: secscan-api
     ports:
       - "8000:8000"
+    # Abuse-protection knobs (see README "Abuse protection"). The values are
+    # the application defaults; override from the shell, for example
+    #   SECSCAN_SCAN_DEADLINE_SECONDS=3 docker compose up -d api
+    environment:
+      - SECSCAN_RATE_LIMIT=${SECSCAN_RATE_LIMIT:-10/minute}
+      - SECSCAN_SCAN_DEADLINE_SECONDS=${SECSCAN_SCAN_DEADLINE_SECONDS:-10}
+      - SECSCAN_MAX_CONCURRENT_SCANS=${SECSCAN_MAX_CONCURRENT_SCANS:-10}
+      # No reverse proxy in front of the API here, so trust nobody's
+      # X-Forwarded-For.
+      - SECSCAN_TRUSTED_PROXIES=${SECSCAN_TRUSTED_PROXIES:-}
     restart: unless-stopped
 
   prometheus:
