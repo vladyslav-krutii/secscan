@@ -15,14 +15,25 @@ import sys
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, JSONResponse
 from prometheus_client import make_asgi_app
 from pydantic import BaseModel, Field
+from slowapi.errors import RateLimitExceeded
 
 from . import __version__
-from .metrics import BLOCKED_TARGETS_TOTAL, SCAN_DURATION, SCAN_ERRORS_TOTAL, SCANS_TOTAL
-from .scanner import BlockedTargetError, ScanError, scan_url
+from .abuse import client_ip, limiter, retry_after_seconds, scan_slots
+from .config import settings
+from .metrics import (
+    BLOCKED_TARGETS_TOTAL,
+    BUSY_REJECTIONS_TOTAL,
+    RATE_LIMITED_TOTAL,
+    SCAN_DEADLINE_EXCEEDED_TOTAL,
+    SCAN_DURATION,
+    SCAN_ERRORS_TOTAL,
+    SCANS_TOTAL,
+)
+from .scanner import BlockedTargetError, ScanDeadlineError, ScanError, scan_url
 
 
 # ── Structured JSON logging (one JSON object per line; Loki/ELK friendly) ──
@@ -94,6 +105,30 @@ app = FastAPI(
 # Prometheus scrape endpoint.
 app.mount("/metrics", make_asgi_app())
 
+# slowapi looks the limiter up on app.state when a decorated route is called.
+app.state.limiter = limiter
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limited(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    RATE_LIMITED_TOTAL.inc()
+    retry_after = retry_after_seconds(request)
+    log.warning(
+        "rate limited",
+        extra={
+            "extra_fields": {
+                "client_ip": client_ip(request),
+                "limit": str(exc.detail),
+                "retry_after_s": retry_after,
+            }
+        },
+    )
+    return JSONResponse(
+        status_code=429,
+        content={"detail": f"Rate limit exceeded ({exc.detail}). Retry later."},
+        headers={"Retry-After": str(retry_after)},
+    )
+
 
 _STATIC = Path(__file__).parent / "static"
 
@@ -116,14 +151,45 @@ async def health() -> HealthResponse:
     return HealthResponse(status="ok", version=__version__)
 
 
-@app.get("/scan", response_model=ScanResponse, tags=["scan"])
+class ErrorResponse(BaseModel):
+    detail: str
+
+
+@app.get(
+    "/scan",
+    response_model=ScanResponse,
+    tags=["scan"],
+    responses={
+        400: {"model": ErrorResponse, "description": "Bad, unreachable or blocked target"},
+        429: {"model": ErrorResponse, "description": "Per-client rate limit exceeded"},
+        503: {"model": ErrorResponse, "description": "Too many scans in progress"},
+        504: {"model": ErrorResponse, "description": "Scan exceeded the overall deadline"},
+    },
+)
+# Order of the gates: rate limit (this decorator, before the function body)
+# -> scan slot -> SSRF validation -> request. Cheapest check first, and a
+# request refused by an earlier gate never holds a slot.
+@limiter.limit(lambda: settings.rate_limit)
 async def scan(
+    request: Request,  # required by the rate limiter
     url: str = Query(
         ...,
         description="Target URL to scan.",
         examples=["https://github.com"],
     ),
 ) -> ScanResponse:
+    if not scan_slots.try_acquire():
+        BUSY_REJECTIONS_TOTAL.inc()
+        log.warning(
+            "scan rejected: busy",
+            extra={"extra_fields": {"url": url, "client_ip": client_ip(request)}},
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Server is busy: too many scans in progress. Retry shortly.",
+            headers={"Retry-After": "1"},
+        )
+
     start = time.perf_counter()
     try:
         result = await scan_url(url)
@@ -136,6 +202,20 @@ async def scan(
             extra={"extra_fields": {"url": url, "reason": exc.reason}},
         )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ScanDeadlineError as exc:
+        SCAN_DEADLINE_EXCEEDED_TOTAL.inc()
+        log.warning(
+            "scan deadline exceeded",
+            extra={
+                "extra_fields": {
+                    "url": url,
+                    "client_ip": client_ip(request),
+                    "deadline_s": settings.scan_deadline_seconds,
+                }
+            },
+        )
+        # 504: we act as a gateway to the target and it did not answer in time.
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
     except ScanError as exc:
         SCAN_ERRORS_TOTAL.inc()
         log.warning(
@@ -143,6 +223,10 @@ async def scan(
             extra={"extra_fields": {"url": url, "error": str(exc)}},
         )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        # Runs on success, on every error above and on cancellation (client
+        # went away), so a slot can never leak.
+        scan_slots.release()
 
     elapsed = time.perf_counter() - start
     SCAN_DURATION.observe(elapsed)

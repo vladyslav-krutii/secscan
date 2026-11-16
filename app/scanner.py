@@ -10,6 +10,8 @@ from urllib.parse import urljoin, urlparse, urlsplit, urlunsplit
 
 import httpx
 
+from .config import settings
+
 # ── SSRF guard settings ────────────────────────────────────────────────────
 ALLOWED_PORTS = frozenset({80, 443})
 DEFAULT_PORTS = {"http": 80, "https": 443}
@@ -80,6 +82,11 @@ class BlockedTargetError(ScanError):
     def __init__(self, message: str, reason: str) -> None:
         super().__init__(message)
         self.reason = reason
+
+
+class ScanDeadlineError(ScanError):
+    """Raised when the whole scan (all DNS lookups and redirect hops) takes
+    longer than the configured deadline."""
 
 
 @dataclass(frozen=True)
@@ -225,30 +232,44 @@ async def _fetch_headers(
         return resp.status_code, {k.lower(): v for k, v in resp.headers.items()}
 
 
-async def scan_url(url: str, timeout: float = 5.0) -> ScanResult:
+async def scan_url(
+    url: str, timeout: float = 5.0, deadline: float | None = None
+) -> ScanResult:
     """Fetch ``url`` and score the security headers on the response.
 
     Redirects are followed by hand (at most ``MAX_REDIRECTS``) so that every
     hop goes through the same SSRF checks as the original URL.
+
+    ``timeout`` limits each network operation of a single hop; ``deadline``
+    (default: ``settings.scan_deadline_seconds``) limits the scan as a whole.
     """
     validate_url(url)
+    if deadline is None:
+        deadline = settings.scan_deadline_seconds
     current = url
     try:
-        # trust_env=False: ignore HTTP(S)_PROXY / .netrc from the environment,
-        # a proxy would make the connection bypass the pinned IP.
-        async with httpx.AsyncClient(
-            timeout=timeout, follow_redirects=False, trust_env=False
-        ) as client:
-            for hop_number in range(MAX_REDIRECTS + 1):
-                hop = await _validate_hop(current, is_redirect=hop_number > 0)
-                status_code, present = await _fetch_headers(client, hop)
-                location = present.get("location")
-                if status_code in REDIRECT_STATUSES and location:
-                    current = urljoin(current, location)
-                    continue
-                break
-            else:
-                raise ScanError(f"Too many redirects (limit is {MAX_REDIRECTS})")
+        # One clock for the whole scan. Per-hop timeouts alone add up to
+        # (MAX_REDIRECTS + 1) x (DNS + connect + read) for a slow target.
+        # When it fires, the task is cancelled wherever it is waiting and the
+        # ``async with`` blocks below close the stream and the client.
+        async with asyncio.timeout(deadline):
+            # trust_env=False: ignore HTTP(S)_PROXY / .netrc from the
+            # environment, a proxy would bypass the pinned IP.
+            async with httpx.AsyncClient(
+                timeout=timeout, follow_redirects=False, trust_env=False
+            ) as client:
+                for hop_number in range(MAX_REDIRECTS + 1):
+                    hop = await _validate_hop(current, is_redirect=hop_number > 0)
+                    status_code, present = await _fetch_headers(client, hop)
+                    location = present.get("location")
+                    if status_code in REDIRECT_STATUSES and location:
+                        current = urljoin(current, location)
+                        continue
+                    break
+                else:
+                    raise ScanError(f"Too many redirects (limit is {MAX_REDIRECTS})")
+    except TimeoutError as exc:
+        raise ScanDeadlineError(f"Scan exceeded the {deadline:g} s deadline") from exc
     except (httpx.HTTPError, httpx.InvalidURL) as exc:
         raise ScanError(f"Request failed: {exc}") from exc
 
