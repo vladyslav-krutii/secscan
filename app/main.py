@@ -21,8 +21,8 @@ from prometheus_client import make_asgi_app
 from pydantic import BaseModel, Field
 
 from . import __version__
-from .metrics import SCAN_DURATION, SCAN_ERRORS_TOTAL, SCANS_TOTAL
-from .scanner import ScanError, scan_url
+from .metrics import BLOCKED_TARGETS_TOTAL, SCAN_DURATION, SCAN_ERRORS_TOTAL, SCANS_TOTAL
+from .scanner import BlockedTargetError, ScanError, scan_url
 
 
 # ── Structured JSON logging (one JSON object per line; Loki/ELK friendly) ──
@@ -127,6 +127,15 @@ async def scan(
     start = time.perf_counter()
     try:
         result = await scan_url(url)
+    except BlockedTargetError as exc:
+        BLOCKED_TARGETS_TOTAL.inc()
+        # The reason (e.g. the internal IP a name resolved to) stays in the
+        # log; the client only gets the generic message.
+        log.warning(
+            "blocked target",
+            extra={"extra_fields": {"url": url, "reason": exc.reason}},
+        )
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ScanError as exc:
         SCAN_ERRORS_TOTAL.inc()
         log.warning(

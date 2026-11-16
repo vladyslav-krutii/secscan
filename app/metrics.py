@@ -13,6 +13,11 @@ SCAN_ERRORS_TOTAL = Counter(
     "Total number of scans that failed before producing a grade.",
 )
 
+BLOCKED_TARGETS_TOTAL = Counter(
+    "secscan_blocked_targets_total",
+    "Scans refused by the SSRF guard (internal address, port or redirect).",
+)
+
 SCAN_DURATION = Histogram(
     "secscan_scan_duration_seconds",
     "Time spent scanning a target URL.",
