@@ -85,8 +85,9 @@ class BlockedTargetError(ScanError):
 
 
 class ScanDeadlineError(ScanError):
-    """Raised when the whole scan (all DNS lookups and redirect hops) takes
-    longer than the configured deadline."""
+    """Raised when the scan ran out of time: a single DNS lookup or HTTP
+    request hit its own timeout, or the whole scan (all lookups and redirect
+    hops) took longer than the configured deadline. Reported as 504."""
 
 
 @dataclass(frozen=True)
@@ -143,7 +144,11 @@ async def _resolve(host: str, port: int) -> list[IPAddress]:
         infos = await asyncio.wait_for(
             loop.getaddrinfo(host, port, type=socket.SOCK_STREAM), DNS_TIMEOUT
         )
-    except (OSError, UnicodeError, TimeoutError) as exc:
+    except TimeoutError as exc:
+        raise ScanDeadlineError(
+            f"Target did not respond in time: DNS lookup took over {DNS_TIMEOUT:g} s"
+        ) from exc
+    except (OSError, UnicodeError) as exc:
         raise ScanError(f"Could not resolve host {host!r}") from exc
     ips: list[IPAddress] = []
     for info in infos:
@@ -270,6 +275,12 @@ async def scan_url(
                     raise ScanError(f"Too many redirects (limit is {MAX_REDIRECTS})")
     except TimeoutError as exc:
         raise ScanDeadlineError(f"Scan exceeded the {deadline:g} s deadline") from exc
+    except httpx.TimeoutException as exc:
+        # Must come before HTTPError (its parent class): a hop that timed out
+        # is the same situation as a missed deadline, not a bad request.
+        raise ScanDeadlineError(
+            f"Target did not respond in time ({timeout:g} s per-request timeout)"
+        ) from exc
     except (httpx.HTTPError, httpx.InvalidURL) as exc:
         raise ScanError(f"Request failed: {exc}") from exc
 

@@ -174,7 +174,7 @@ The API exports Prometheus metrics:
 - `secscan_blocked_targets_total` — scans refused by the SSRF guard
 - `secscan_rate_limited_total` — requests refused with `429` (per-client rate limit)
 - `secscan_busy_rejections_total` — requests refused with `503` (all scan slots in use)
-- `secscan_scan_deadline_exceeded_total` — scans aborted with `504` (overall deadline)
+- `secscan_scan_deadline_exceeded_total` — scans aborted with `504` (per-request timeout or overall deadline)
 
 Prometheus scrapes them and the Grafana dashboard (auto-provisioned) shows total
 scans, error rate, scans/sec by grade and p95 latency.
@@ -313,7 +313,10 @@ request refused by one gate never reaches the next:
   Before, only per-hop timeouts existed, so a slow redirect chain could run for
   about 6 hops x (5 s DNS + 5 s HTTP). When the deadline fires the task is
   cancelled, the open response stream and the HTTP client are closed, and the
-  slot is released.
+  slot is released. A single DNS lookup or HTTP request that hits its own
+  timeout (5 s) is reported the same way: `504`, same metric, same log line.
+  `400` is kept for targets that are invalid, blocked, unresolvable or refuse
+  the connection.
 
 ### Who is "the client"? (`X-Forwarded-For`)
 

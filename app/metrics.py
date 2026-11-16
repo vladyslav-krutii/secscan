@@ -25,7 +25,7 @@ RATE_LIMITED_TOTAL = Counter(
 
 SCAN_DEADLINE_EXCEEDED_TOTAL = Counter(
     "secscan_scan_deadline_exceeded_total",
-    "Scans aborted with 504 because they ran past the overall deadline.",
+    "Scans aborted with 504: a per-request timeout or the overall deadline was hit.",
 )
 
 BUSY_REJECTIONS_TOTAL = Counter(

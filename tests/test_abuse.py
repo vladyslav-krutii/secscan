@@ -18,6 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 from prometheus_client import REGISTRY
 
+from app import scanner
 from app.abuse import scan_slots
 from app.config import settings
 from app.main import app
@@ -202,6 +203,54 @@ def test_deadline_is_counted_and_logged(net, monkeypatch, caplog):
         scan(client_from(CLIENT_A), "http://loop.example")
     assert counter("secscan_scan_deadline_exceeded_total") == before + 1
     assert len(log_fields(caplog, "scan deadline exceeded")) == 1
+
+
+# ── Per-hop timeouts are reported the same way as the overall deadline ─────
+@pytest.mark.parametrize(
+    "timeout_error", [httpx.ConnectTimeout, httpx.ReadTimeout, httpx.PoolTimeout]
+)
+def test_per_hop_http_timeout_returns_504(net, caplog, timeout_error):
+    def too_slow(request: httpx.Request) -> httpx.Response:
+        raise timeout_error("timed out", request=request)
+
+    net.routes["public.example"] = too_slow
+    before = counter("secscan_scan_deadline_exceeded_total")
+    with caplog.at_level(logging.WARNING):
+        resp = scan(client_from(CLIENT_A))
+
+    assert resp.status_code == 504
+    assert "did not respond" in resp.json()["detail"].lower()
+    assert counter("secscan_scan_deadline_exceeded_total") == before + 1
+    assert len(log_fields(caplog, "scan deadline exceeded")) == 1
+
+
+def test_dns_timeout_returns_504(net, monkeypatch):
+    monkeypatch.setattr(scanner, "DNS_TIMEOUT", 0.05)
+
+    def slow_lookup() -> list[str]:
+        time.sleep(0.3)
+        return [PUBLIC_IP]
+
+    net.dns["public.example"] = slow_lookup
+    before = counter("secscan_scan_deadline_exceeded_total")
+    resp = scan(client_from(CLIENT_A))
+    assert resp.status_code == 504
+    assert counter("secscan_scan_deadline_exceeded_total") == before + 1
+    assert net.requests == []
+
+
+def test_other_network_errors_are_still_400(net):
+    """Only "ran out of time" is a 504; refused or broken connections and
+    names that do not exist stay client-visible 400s."""
+
+    def refused(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    net.routes["public.example"] = refused
+    before = counter("secscan_scan_deadline_exceeded_total")
+    assert scan(client_from(CLIENT_A)).status_code == 400
+    assert scan(client_from(CLIENT_A), "http://does-not-exist.example").status_code == 400
+    assert counter("secscan_scan_deadline_exceeded_total") == before
 
 
 # ── Concurrency cap ────────────────────────────────────────────────────────

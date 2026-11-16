@@ -163,7 +163,7 @@ class ErrorResponse(BaseModel):
         400: {"model": ErrorResponse, "description": "Bad, unreachable or blocked target"},
         429: {"model": ErrorResponse, "description": "Per-client rate limit exceeded"},
         503: {"model": ErrorResponse, "description": "Too many scans in progress"},
-        504: {"model": ErrorResponse, "description": "Scan exceeded the overall deadline"},
+        504: {"model": ErrorResponse, "description": "Target did not respond in time"},
     },
 )
 # Order of the gates: rate limit (this decorator, before the function body)
@@ -210,6 +210,8 @@ async def scan(
                 "extra_fields": {
                     "url": url,
                     "client_ip": client_ip(request),
+                    # Which clock ran out: per-request timeout or the deadline.
+                    "error": str(exc),
                     "deadline_s": settings.scan_deadline_seconds,
                 }
             },
