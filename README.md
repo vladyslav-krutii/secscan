@@ -136,13 +136,24 @@ curl "http://localhost:8000/scan?url=https://github.com"
 {
   "url": "https://github.com",
   "status_code": 200,
-  "score": 90,
-  "grade": "A",
+  "score": 85,
+  "grade": "B",
   "headers": [
-    { "name": "strict-transport-security", "present": true, "value": "max-age=31536000", "advice": null }
+    {
+      "name": "strict-transport-security", "present": true,
+      "value": "max-age=31536000", "advice": null, "points": 20,
+      "issues": ["HSTS lacks includeSubDomains: subdomains can be downgraded."]
+    }
   ]
 }
 ```
+
+**Grading.** Each header has a weight (sum = 100). HSTS and CSP are graded by
+**value** (`app/rules.py`): HSTS needs `max-age` ≥ 180 days and earns a bonus
+for `includeSubDomains`; `max-age=0` scores nothing. CSP loses points for
+`'unsafe-inline'` (unless a nonce/hash is present), `'unsafe-eval'`, a bare `*`
+and a missing `default-src` / `object-src`. `issues` lists every lost point.
+Other headers are still graded on presence only (next step: `docs/NEXT.md`).
 
 Example grades from a quick run:
 
@@ -374,6 +385,7 @@ secscan/
 ├── app/                  # FastAPI application
 │   ├── main.py           # routes, logging, metrics, response models
 │   ├── scanner.py        # header fetch + scoring, SSRF guard, deadline
+│   ├── rules.py          # value-based header rules (pure functions)
 │   ├── abuse.py          # client identity, rate limiter, scan slots
 │   ├── config.py         # settings from environment variables
 │   └── metrics.py        # Prometheus metrics
