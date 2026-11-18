@@ -9,7 +9,7 @@
   "title": "SecScan Overview",
   "uid": "secscan-overview",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "panels": [
     {
       "id": 1,
@@ -71,6 +71,102 @@
         { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "histogram_quantile(0.95, sum(rate(secscan_scan_duration_seconds_bucket[5m])) by (le))",
           "legendFormat": "p95" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "row",
+      "title": "Abuse protection & SSRF guard",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "panels": []
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Rate limited (429)",
+      "description": "Requests to /scan refused by the per-client rate limit. Count over the selected time range.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 15 },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "thresholds" },
+        "thresholds": { "mode": "absolute", "steps": [
+          { "color": "green", "value": null }, { "color": "orange", "value": 1 } ] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "textMode": "auto", "orientation": "auto" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(increase(secscan_rate_limited_total[$__range])) or vector(0)" }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Busy rejections (503)",
+      "description": "Requests to /scan refused because every scan slot was in use. Count over the selected time range.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 15 },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "thresholds" },
+        "thresholds": { "mode": "absolute", "steps": [
+          { "color": "green", "value": null }, { "color": "orange", "value": 1 } ] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "textMode": "auto", "orientation": "auto" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(increase(secscan_busy_rejections_total[$__range])) or vector(0)" }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Deadline exceeded (504)",
+      "description": "Scans aborted by a per-request timeout or the overall deadline. Count over the selected time range.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 15 },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "thresholds" },
+        "thresholds": { "mode": "absolute", "steps": [
+          { "color": "green", "value": null }, { "color": "orange", "value": 1 } ] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "textMode": "auto", "orientation": "auto" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(increase(secscan_scan_deadline_exceeded_total[$__range])) or vector(0)" }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "Blocked targets (SSRF)",
+      "description": "Scans refused by the SSRF guard (internal address, port or redirect). Count over the selected time range.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 15 },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "thresholds" },
+        "thresholds": { "mode": "absolute", "steps": [
+          { "color": "green", "value": null }, { "color": "orange", "value": 1 } ] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "textMode": "auto", "orientation": "auto" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(increase(secscan_blocked_targets_total[$__range])) or vector(0)" }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Refused / aborted scans per second",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": {
+        "drawStyle": "line", "lineInterpolation": "linear", "fillOpacity": 10, "showPoints": "never" } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(secscan_rate_limited_total[1m]))", "legendFormat": "Rate limited (429)" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(secscan_busy_rejections_total[1m]))", "legendFormat": "Busy rejections (503)" },
+        { "refId": "C", "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(secscan_scan_deadline_exceeded_total[1m]))", "legendFormat": "Deadline exceeded (504)" },
+        { "refId": "D", "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(secscan_blocked_targets_total[1m]))", "legendFormat": "Blocked targets (SSRF)" }
       ]
     }
   ]
