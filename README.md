@@ -148,12 +148,18 @@ curl "http://localhost:8000/scan?url=https://github.com"
 }
 ```
 
-**Grading.** Each header has a weight (sum = 100). HSTS and CSP are graded by
-**value** (`app/rules.py`): HSTS needs `max-age` ≥ 180 days and earns a bonus
-for `includeSubDomains`; `max-age=0` scores nothing. CSP loses points for
-`'unsafe-inline'` (unless a nonce/hash is present), `'unsafe-eval'`, a bare `*`
-and a missing `default-src` / `object-src`. `issues` lists every lost point.
-Other headers are still graded on presence only (next step: `docs/NEXT.md`).
+**Grading.** Each header has a weight (sum = 100) and is graded by its
+**value**, not just its presence (pure functions in `app/rules.py`); `points`
+is what it earned and `issues` explains every lost point.
+
+| Header | Full points | Partial / none |
+|---|---|---|
+| HSTS (25) | `max-age` ≥ 180 days + `includeSubDomains` | shorter `max-age` or no `includeSubDomains` = partial; `max-age=0` / invalid = 0 |
+| CSP (25) | no unsafe sources, has `default-src` | penalties for `'unsafe-inline'` (ignored with a nonce/hash), `'unsafe-eval'`, bare `*`, missing `default-src` / `object-src` |
+| X-Frame-Options (15) | `DENY` / `SAMEORIGIN`, **or** CSP `frame-ancestors` without `*` (it supersedes XFO, so XFO may be absent) | `ALLOW-FROM` (obsolete) = partial; anything else or `frame-ancestors *` = 0 |
+| X-Content-Type-Options (15) | exactly `nosniff` | anything else = 0 |
+| Referrer-Policy (10) | `no-referrer`, `same-origin`, `strict-origin`, `strict-origin-when-cross-origin` | `origin*` = partial; `unsafe-url`, `no-referrer-when-downgrade` = low. In a comma list the last known value wins, like in the browser |
+| Permissions-Policy (10) | restricts `camera`, `microphone` and `geolocation` (not `*`) | each one left open costs points; empty/permissive = partial |
 
 Example grades from a quick run:
 
