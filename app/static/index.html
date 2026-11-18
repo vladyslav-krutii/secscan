@@ -46,6 +46,7 @@
     li { display: flex; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
     .mark { flex-shrink: 0; font-weight: 800; }
     .mark.ok { color: var(--a); } .mark.no { color: var(--f); }
+    .mark.warn { color: var(--d); }
     .hname { font-family: var(--mono); font-size: 13.5px; }
     .advice { color: var(--muted); font-size: 13px; }
     footer { margin-top: 28px; color: var(--muted); font-size: 13px; text-align: center; }
@@ -122,14 +123,18 @@
       for (const h of d.headers) {
         const li = document.createElement("li");
         const mark = document.createElement("span");
-        mark.className = "mark " + (h.present ? "ok" : "no");
-        mark.textContent = h.present ? "✓" : "✗";
+        // ✓ full points, ! partial, ✗ none (a missing XFO can still earn
+        // full points via CSP frame-ancestors).
+        const issues = h.issues || [];
+        const state = !h.points ? "no" : issues.length ? "warn" : "ok";
+        mark.className = "mark " + state;
+        mark.textContent = { ok: "✓", warn: "!", no: "✗" }[state];
         const body = document.createElement("div");
         const name = document.createElement("div");
         name.className = "hname";
-        name.textContent = h.name;
+        name.textContent = h.name + "  " + (h.points ?? 0) + " pts";
         body.appendChild(name);
-        if (!h.present && h.advice) {
+        if (h.advice) {
           const adv = document.createElement("div");
           adv.className = "advice";
           adv.textContent = h.advice;

@@ -11,7 +11,7 @@ from urllib.parse import urljoin, urlparse, urlsplit, urlunsplit
 import httpx
 
 from .config import settings
-from .rules import VALUE_RULES
+from .rules import FRAME_ANCESTORS_NOTE, VALUE_RULES, check_x_frame_options
 
 # ── SSRF guard settings ────────────────────────────────────────────────────
 ALLOWED_PORTS = frozenset({80, 443})
@@ -102,13 +102,23 @@ class _Hop:
     sni_hostname: str | None  # hostname for TLS SNI + certificate check
 
 
-def _check_header(name: str, weight: int, advice: str, value: str | None) -> HeaderResult:
-    """Points for one header: 0 if missing, the value rule's share of the
-    weight if there is a rule, otherwise the full weight (presence only)."""
+def _check_header(name: str, weight: int, advice: str, headers) -> HeaderResult:
+    """Points for one header: its rule's share of the weight, 0 if missing.
+    ``headers`` is the whole response header map (case-insensitive)."""
+    value = headers.get(name)
+    if name == "x-frame-options":
+        # CSP frame-ancestors supersedes XFO, so this rule sees both headers
+        # and may give full points even when XFO itself is missing.
+        credit, issues = check_x_frame_options(value, headers.get("content-security-policy"))
+        points = round(weight * credit)
+        if value is None:
+            note = FRAME_ANCESTORS_NOTE if credit else advice
+            return HeaderResult(name, False, None, note, points=points, issues=issues)
+        return HeaderResult(name, True, value, None, points=points, issues=issues)
     if value is None:
         return HeaderResult(name, False, None, advice)
     rule = VALUE_RULES.get(name)
-    if rule is None:
+    if rule is None:  # safety net for a header added without a rule
         return HeaderResult(name, True, value, None, points=weight)
     credit, issues = rule(value)
     return HeaderResult(name, True, value, None, points=round(weight * credit), issues=issues)
@@ -299,7 +309,7 @@ async def scan_url(
     except (httpx.HTTPError, httpx.InvalidURL) as exc:
         raise ScanError(f"Request failed: {exc}") from exc
 
-    results = [_check_header(h, w, a, present.get(h)) for h, (w, a) in SECURITY_HEADERS.items()]
+    results = [_check_header(h, w, a, present) for h, (w, a) in SECURITY_HEADERS.items()]
     # Sum of the rounded per-header points, so the total always matches what
     # the client sees per header.
     score = sum(r.points for r in results)
