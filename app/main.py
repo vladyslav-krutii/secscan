@@ -81,6 +81,10 @@ class HeaderCheck(BaseModel):
     present: bool
     value: str | None = None
     advice: str | None = None
+    points: int = Field(0, ge=0, description="Points earned out of the header's weight.")
+    issues: list[str] = Field(
+        default_factory=list, description="Why points were lost (value-graded headers)."
+    )
 
 
 class ScanResponse(BaseModel):

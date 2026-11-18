@@ -135,6 +135,12 @@
           adv.textContent = h.advice;
           body.appendChild(adv);
         }
+        for (const issue of h.issues || []) {
+          const iss = document.createElement("div");
+          iss.className = "advice";
+          iss.textContent = "⚠ " + issue;
+          body.appendChild(iss);
+        }
         li.appendChild(mark);
         li.appendChild(body);
         ul.appendChild(li);

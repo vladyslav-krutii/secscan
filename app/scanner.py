@@ -11,6 +11,7 @@ from urllib.parse import urljoin, urlparse, urlsplit, urlunsplit
 import httpx
 
 from .config import settings
+from .rules import VALUE_RULES
 
 # ── SSRF guard settings ────────────────────────────────────────────────────
 ALLOWED_PORTS = frozenset({80, 443})
@@ -48,6 +49,8 @@ class HeaderResult:
     present: bool
     value: str | None
     advice: str | None
+    points: int = 0  # earned share of the header's weight
+    issues: list[str] = field(default_factory=list)  # why points were lost
 
 
 @dataclass
@@ -97,6 +100,18 @@ class _Hop:
     pinned_url: str  # same URL, but the host is replaced by the validated IP
     host_header: str
     sni_hostname: str | None  # hostname for TLS SNI + certificate check
+
+
+def _check_header(name: str, weight: int, advice: str, value: str | None) -> HeaderResult:
+    """Points for one header: 0 if missing, the value rule's share of the
+    weight if there is a rule, otherwise the full weight (presence only)."""
+    if value is None:
+        return HeaderResult(name, False, None, advice)
+    rule = VALUE_RULES.get(name)
+    if rule is None:
+        return HeaderResult(name, True, value, None, points=weight)
+    credit, issues = rule(value)
+    return HeaderResult(name, True, value, None, points=round(weight * credit), issues=issues)
 
 
 def _grade(score: int) -> str:
@@ -284,15 +299,10 @@ async def scan_url(
     except (httpx.HTTPError, httpx.InvalidURL) as exc:
         raise ScanError(f"Request failed: {exc}") from exc
 
-    results: list[HeaderResult] = []
-    score = 0
-    for header, (weight, advice) in SECURITY_HEADERS.items():
-        value = present.get(header)
-        if value is not None:
-            score += weight
-            results.append(HeaderResult(header, True, value, None))
-        else:
-            results.append(HeaderResult(header, False, None, advice))
+    results = [_check_header(h, w, a, present.get(h)) for h, (w, a) in SECURITY_HEADERS.items()]
+    # Sum of the rounded per-header points, so the total always matches what
+    # the client sees per header.
+    score = sum(r.points for r in results)
 
     return ScanResult(
         url=url,
