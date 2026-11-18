@@ -72,9 +72,28 @@ def test_missing_header_has_zero_points_and_advice(net):
     assert csp["advice"]
 
 
-def test_presence_only_headers_unchanged_for_now(net):
-    # Not value-graded yet (see docs/NEXT.md): any value earns full points.
-    body = scan_with(net, {**SECURE_HEADERS, "x-frame-options": "whatever"})
+def test_every_header_is_now_value_graded(net):
+    weak = {
+        **SECURE_HEADERS,
+        "x-frame-options": "whatever",
+        "x-content-type-options": "sniff",
+        "referrer-policy": "unsafe-url",
+        "permissions-policy": "fullscreen=*",
+    }
+    headers = by_name(scan_with(net, weak))
+    for name in weak.keys() - {"strict-transport-security", "content-security-policy"}:
+        h = headers[name]
+        assert h["present"] is True
+        assert h["points"] < SECURITY_HEADERS[name][0], name
+        assert h["issues"], name
+
+
+def test_frame_ancestors_covers_a_missing_xfo(net):
+    headers = {k: v for k, v in SECURE_HEADERS.items() if k != "x-frame-options"}
+    headers["content-security-policy"] = "default-src 'self'; frame-ancestors 'none'"
+    body = scan_with(net, headers)
     xfo = by_name(body)["x-frame-options"]
+    assert xfo["present"] is False
     assert xfo["points"] == 15
-    assert xfo["issues"] == []
+    assert "frame-ancestors" in xfo["advice"]
+    assert body["score"] == 100

@@ -48,7 +48,7 @@ SECURE_HEADERS = {
     "x-frame-options": "DENY",
     "x-content-type-options": "nosniff",
     "referrer-policy": "no-referrer",
-    "permissions-policy": "geolocation=()",
+    "permissions-policy": "camera=(), microphone=(), geolocation=()",
 }
 
 
