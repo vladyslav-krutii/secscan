@@ -1,20 +1,32 @@
-# Next session: Phase 4, supply-chain CI
+# Next session: Phase 4 slice 2, SBOM + image signing
 
-**Phase 3 (value-based grading) is done.** All six headers are graded by value
-in `app/rules.py` (pure functions → `(credit 0..1, issues)`); `/scan` returns
-`points` and `issues` per header; X-Frame-Options also looks at CSP
-`frame-ancestors`, which supersedes it.
+**Phase 4 slice 1 is done** (c29a066 … f3ee57b): actions pinned by SHA,
+least-privilege `permissions:`, Gitleaks, Semgrep, pip-audit, Trivy 0.76.2
+with SARIF upload; FastAPI 0.165.0 / Starlette 1.10; base image pinned by
+digest, no pip/setuptools in the runtime image. Study notes: `docs/LEARNING.md`
+(append an entry after every commit).
 
-## Phase 4 plan
+## Slice 2 plan
 
-- Pin every GitHub Action by full commit SHA (with a `# vX.Y.Z` comment);
-  this also fixes the "Node 20 actions are deprecated" warnings.
-- Least-privilege `permissions:` per job (default `contents: read`).
-- SAST: Semgrep; secrets: Gitleaks; dependencies: pip-audit / OSV-Scanner.
-- Trivy image scan with SARIF upload to GitHub code scanning.
-- SBOM with Syft, attach to the image; sign image + SBOM attestation with
-  Cosign (keyless, OIDC) and verify the signature in CI.
-- Check current stable versions/syntax of every tool before using it.
+- SBOM with Syft (SPDX or CycloneDX JSON) for the pushed image; upload as a
+  build artifact and attach it to the image as an attestation.
+- Sign the image by digest with Cosign keyless (GitHub OIDC,
+  `id-token: write` only in that job) and attest the SBOM.
+- Verify in CI: `cosign verify` / `cosign verify-attestation` with
+  `--certificate-identity` (this workflow) and
+  `--certificate-oidc-issuer https://token.actions.githubusercontent.com`.
+- Push by digest, not only by tag; sign what was scanned.
+- Check current stable Syft/Cosign versions; pin actions/images by SHA/digest.
+
+## Open items from slice 1
+
+- Trivy: zlib1g CVE-2026-85091 (HIGH) in the base image. Fixed in Debian
+  (`1:1.3.dfsg+really1.3.1-1+deb13u1`) but not yet in python:3.12-slim.
+  Options: wait for a new digest via Dependabot, or `apt-get install
+  --only-upgrade zlib1g` in the runtime stage (less reproducible). Undecided.
+- Starlette warns that `starlette.testclient` with `httpx` is deprecated
+  (use `httpx2`); tests still pass.
+- Python 3.15 base image (closed Dependabot #13): revisit separately.
 
 ## Known simplifications left from Phase 3 (fine for now)
 

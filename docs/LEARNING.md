@@ -250,3 +250,74 @@ PyPI/OSV. Trivy бачить тільки те, що вже лежить в об
 - https://osv.dev/
 - https://docs.github.com/en/actions/writing-workflows/workflow-syntax-for-github-actions#jobsjob_idneeds
 - https://github.com/actions/checkout#usage
+
+### edfbf21 — бамп FastAPI 0.165.0 (Starlette 1.10) і dev-інструментів
+
+**Що і навіщо.** Вразливий starlette 0.41.3 приходив транзитивно через
+`fastapi==0.115.6`. Запінити тільки starlette не вийде: стара FastAPI
+обмежує його версію зверху. Тому оновили саму FastAPI. Перед бампом
+перевірили, що slowapi 0.1.10 сумісна зі Starlette 1.x: відомі issues
+стосуються `app.route` і `default_limits` + middleware, а ми використовуємо
+тільки декоратор на роуті. Цикл RED → GREEN:
+- RED: pip-audit знаходив вразливості;
+- GREEN: 188 тестів пройшли, ruff чистий, pip-audit без знахідок.
+
+**Питання.**
+- *Як безпечно оновити мажорну версію бібліотеки?* — Прочитати changelog і
+  відкриті issues, оновити в окремому коміті й прогнати всі тести. Тести —
+  це страховка, без них такий бамп — лотерея.
+- *Чому всі версії запінені точно (`==`)?* — Збірка відтворювана: сьогодні й
+  через місяць ставляться ті самі пакети. Оновлення приходять явно, через
+  Dependabot і тести.
+- *Чому DoS-вразливість у вебфреймворку — це HIGH?* — Один запит може
+  «покласти» сервіс для всіх. Для банку недоступність — це прямі збитки.
+
+**Документація.**
+- https://github.com/fastapi/fastapi/releases
+- https://www.starlette.io/release-notes/
+- https://github.com/laurentS/slowapi/issues/271
+- https://github.com/laurentS/slowapi/issues/281
+
+### f3ee57b — базовий образ запінений по digest, без pip/setuptools
+
+**Що і навіщо.** `python:3.12-slim` — це змінний тег: сьогодні й завтра він
+може вказувати на різні образи. Тепер `FROM python:3.12-slim@sha256:...`, і
+збірка відтворювана. Dependabot (ecosystem `docker`) пропонує PR, коли
+виходить новий digest, і так приходять виправлення пакетів ОС.
+pip і setuptools видалені з runtime: у продакшені їм нема чого робити, а
+setuptools мав CVE. Trivy позначив starlette- і setuptools-CVE як fixed.
+
+**Питання.**
+- *Тег чи digest — що краще?* — Digest дає відтворюваність і захист від
+  підміни, але сам не оновлюється. Тому digest завжди йде в парі з
+  Dependabot або Renovate.
+- *Навіщо прибирати pip з runtime-образу?* — Якщо нападник отримає виконання
+  коду, без pip йому важче доставити свої інструменти. До того ж менше
+  пакетів — менше CVE.
+- *Чому zlib досі вразливий?* — Виправлення є в Debian, але офіційний образ
+  Python ще не перезібрали з ним. Варіанти: чекати новий digest або зробити
+  `apt-get upgrade` цього пакета в Dockerfile; останнє ціною
+  відтворюваності.
+
+**Документація.**
+- https://docs.docker.com/reference/dockerfile/#from
+- https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference#package-ecosystem-
+- https://hub.docker.com/_/python
+
+### Закриті Dependabot PR (#1–#5, #7–#10, #12, #13)
+
+**Що і навіщо.** Старі PR пропонували бамп тегів (`@v4 → @v7`) і пакетів,
+які ми вже оновили власними комітами. #13 (Python 3.15) закрили свідомо: це
+занадто великий стрибок для одного кроку. Після закриття Dependabot більше не
+пропонує ту саму версію, а нові версії пропонуватиме як завжди.
+
+**Питання.**
+- *Чому не змерджити PR від Dependabot як є?* — Вони пропонували теги, а не
+  SHA, і кожен оновлював лише один пакет. FastAPI і Starlette треба було
+  оновити разом, з перевіркою сумісності.
+- *Як обробляти потік Dependabot PR у команді?* — Групувати (`groups:` у
+  `dependabot.yml`), автомерджити patch-версії при зеленому CI, а мажорні
+  переглядати вручну.
+
+**Документація.**
+- https://docs.github.com/en/code-security/dependabot/working-with-dependabot/managing-pull-requests-for-dependency-updates
