@@ -70,6 +70,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+      security-events: write # upload SARIF to code scanning
+    env:
+      TRIVY: aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -90,21 +93,30 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Trivy scan (report HIGH/CRITICAL)
+      - name: Trivy scan (HIGH/CRITICAL → SARIF)
         run: |
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$HOME/.cache/trivy:/root/.cache/trivy" \
-            aquasec/trivy:0.58.0 image \
+            -v "$PWD:/out" \
+            "$TRIVY" image \
             --severity HIGH,CRITICAL --ignore-unfixed \
+            --format sarif --output /out/trivy.sarif \
             "${IMAGE}:${{ github.sha }}"
+
+      - name: Upload Trivy results to the Security tab
+        if: always() && hashFiles('trivy.sarif') != ''
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: trivy.sarif
+          category: trivy-image
 
       - name: Trivy gate (fail on CRITICAL)
         run: |
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$HOME/.cache/trivy:/root/.cache/trivy" \
-            aquasec/trivy:0.58.0 image \
+            "$TRIVY" image \
             --severity CRITICAL --ignore-unfixed --exit-code 1 \
             "${IMAGE}:${{ github.sha }}"
 
