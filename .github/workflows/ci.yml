@@ -63,9 +63,27 @@ jobs:
             semgrep scan --config p/python --config p/dockerfile \
               --config p/github-actions --error --metrics=off
 
+  deps:
+    name: Dependencies (pip-audit)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: pip install pip-audit==2.10.1
+      - name: pip-audit
+        # Resolves the full dependency tree (incl. transitive packages such as
+        # starlette) and exits 1 if any package has a known vulnerability.
+        run: pip-audit --strict --desc -r requirements.txt -r requirements-dev.txt
+
   build-scan-push:
     name: Build, scan & push image
-    needs: [test, secrets, sast]
+    needs: [test, secrets, sast, deps]
     runs-on: ubuntu-latest
     permissions:
       contents: read
