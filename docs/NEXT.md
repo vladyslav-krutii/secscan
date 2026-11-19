@@ -18,12 +18,24 @@ digest, no pip/setuptools in the runtime image. Study notes: `docs/LEARNING.md`
 - Push by digest, not only by tag; sign what was scanned.
 - Check current stable Syft/Cosign versions; pin actions/images by SHA/digest.
 
+## Live check (needs Docker Desktop running)
+
+Not done after the FastAPI 0.165.0 / Starlette 1.10 bump yet:
+
+```powershell
+cd C:\Users\vkryt\Cybersecurity\secscan; docker compose up -d --build; Start-Sleep 10; Invoke-RestMethod "http://localhost:8000/scan?url=https://github.com" | Select-Object score, grade
+cd C:\Users\vkryt\Cybersecurity\secscan; 1..12 | ForEach-Object { (curl.exe -s -o NUL -w "%{http_code} " "http://localhost:8000/scan?url=https://example.com") }
+```
+
+Expected: a grade for github.com; the burst shows 200s, then 429 after ~10
+requests (slowapi 0.1.10 on Starlette 1.10 at runtime, not only in tests).
+
 ## Open items from slice 1
 
-- Trivy: zlib1g CVE-2026-85091 (HIGH) in the base image. Fixed in Debian
-  (`1:1.3.dfsg+really1.3.1-1+deb13u1`) but not yet in python:3.12-slim.
-  Options: wait for a new digest via Dependabot, or `apt-get install
-  --only-upgrade zlib1g` in the runtime stage (less reproducible). Undecided.
+- zlib1g CVE-2026-85091 (HIGH): **accepted until 2026-12-10** (`.trivyignore`
+  with `exp:`, SECURITY.md "Accepted risks"). Before that date: merge the
+  Dependabot base-image digest bump if the rebuilt image has the fix, then
+  delete the ignore entry; otherwise re-review and extend with a reason.
 - Starlette warns that `starlette.testclient` with `httpx` is deprecated
   (use `httpx2`); tests still pass.
 - Python 3.15 base image (closed Dependabot #13): revisit separately.

@@ -118,6 +118,7 @@ jobs:
             -v "$HOME/.cache/trivy:/root/.cache/trivy" \
             -v "$PWD:/out" \
             "$TRIVY" image \
+            --ignorefile /out/.trivyignore \
             --severity HIGH,CRITICAL --ignore-unfixed \
             --format sarif --output /out/trivy.sarif \
             "${IMAGE}:${{ github.sha }}"
@@ -134,7 +135,9 @@ jobs:
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$HOME/.cache/trivy:/root/.cache/trivy" \
+            -v "$PWD/.trivyignore:/.trivyignore:ro" \
             "$TRIVY" image \
+            --ignorefile /.trivyignore \
             --severity CRITICAL --ignore-unfixed --exit-code 1 \
             "${IMAGE}:${{ github.sha }}"
 

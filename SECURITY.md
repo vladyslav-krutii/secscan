@@ -11,6 +11,10 @@ please open a GitHub issue or contact the maintainer rather than exploiting it.
   and all Linux capabilities dropped.
 - Images are scanned with **Trivy** in CI; the pipeline fails on CRITICAL
   vulnerabilities.
+- Supply chain in CI: GitHub Actions pinned by commit SHA, container images
+  (base image, Trivy, Semgrep, Gitleaks) pinned by digest, least-privilege
+  `permissions:`; Gitleaks (secrets), Semgrep (SAST), pip-audit
+  (dependencies) and Trivy (image, SARIF in the Security tab) on every push.
 - Dependencies are kept current via **Dependabot**.
 - The scanner has an SSRF guard: only `http`/`https` on ports 80/443, only
   globally routable addresses, every redirect re-validated, and the connection
@@ -19,3 +23,12 @@ please open a GitHub issue or contact the maintainer rather than exploiting it.
   concurrent scans (`503`) and an overall deadline per scan (`504`).
   `X-Forwarded-For` is only believed from configured proxies. See "Abuse
   protection" in the README.
+
+## Accepted risks
+
+Time-boxed exceptions, mirrored in `.trivyignore` with an `exp:` date. After
+the expiry date Trivy reports the finding again and it must be re-reviewed.
+
+| ID | Component | Severity | Accepted | Expires | Reason |
+|---|---|---|---|---|---|
+| CVE-2026-85091 | `zlib1g` in `python:3.12-slim` | HIGH | 2026-11-19 | 2026-12-10 | Fixed in Debian (`deb13u1`) but not yet in the official image. HIGH, not CRITICAL. We prefer reproducible digest-pinned builds over an ad-hoc `apt-get upgrade`; Dependabot will propose the new base digest. |
