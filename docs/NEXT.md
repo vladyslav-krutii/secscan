@@ -36,7 +36,9 @@ Study notes are in `docs/LEARNING.md`; add an entry after every commit.
 After the FastAPI 0.165.0 / Starlette 1.10 bump, on the compose stack:
 github.com scored 83 (grade B); a 12-request burst gave 200×8 then 429×4
 (two earlier requests in the same minute also counted against 10/minute);
-the Grafana "Abuse protection & SSRF guard" panel showed the 429s. Grafana's
+Grafana "Abuse protection & SSRF guard": Rate limited (429) = 4, Total
+scans = 11, errors 0; three requests to `http://prometheus` returned 400 and
+Blocked targets (SSRF) = 3 (screenshot `docs/grafana-abuse.png`). Grafana's
 host port is now `${GRAFANA_PORT:-3000}` (3000 was taken by another
 container).
 

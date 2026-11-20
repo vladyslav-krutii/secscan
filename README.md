@@ -36,6 +36,11 @@ shipped, deployed and observed.
 
 ![Grafana dashboard](docs/grafana-dashboard.webp)
 
+**Abuse protection & SSRF guard** — live check: a 12-request burst gave four
+`429`s, and three scans of `http://prometheus` were refused as SSRF (`400`):
+
+![Grafana abuse protection panels](docs/grafana-abuse.png)
+
 ---
 
 ## Architecture
