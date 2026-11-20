@@ -21,7 +21,9 @@ please open a GitHub issue or contact the maintainer rather than exploiting it.
   verifies both. To check an image yourself:
 
   ```bash
-  cosign verify ghcr.io/vladyslav-krutii/secscan@sha256:<digest>     --certificate-identity-regexp '^https://github.com/vladyslav-krutii/secscan/\.github/workflows/ci\.yml@refs/heads/main$'     --certificate-oidc-issuer https://token.actions.githubusercontent.com
+  cosign verify ghcr.io/vladyslav-krutii/secscan@sha256:<digest> \
+    --certificate-identity https://github.com/vladyslav-krutii/secscan/.github/workflows/ci.yml@refs/heads/main \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
   cosign verify-attestation --type spdxjson <same flags> ghcr.io/vladyslav-krutii/secscan@sha256:<digest>
   ```
 - The scanner has an SSRF guard: only `http`/`https` on ports 80/443, only

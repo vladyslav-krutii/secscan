@@ -423,3 +423,7 @@ Grafana спершу не стартувала, бо порт 3000 був зай
 - https://docs.sigstore.dev/cosign/verifying/attestation/
 - https://github.com/anchore/syft#readme
 - https://docs.github.com/en/actions/security-for-github-actions/security-hardening-your-deployments/about-security-hardening-with-openid-connect
+
+### SECURITY.md: виправлена команда `cosign verify`
+
+Дрібний фікс: у прикладі зникли переноси рядків `\`, команда злиплась в один рядок. Тепер `--certificate-identity` вказано точним значенням, без regexp: так простіше і суворіше.
