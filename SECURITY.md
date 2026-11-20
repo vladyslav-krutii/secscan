@@ -16,6 +16,14 @@ please open a GitHub issue or contact the maintainer rather than exploiting it.
   `permissions:`; Gitleaks (secrets), Semgrep (SAST), pip-audit
   (dependencies) and Trivy (image, SARIF in the Security tab) on every push.
 - Dependencies are kept current via **Dependabot**.
+- Every image pushed from `main` has an SPDX SBOM (Syft) and is signed by
+  digest with **Cosign keyless** (GitHub OIDC, no long-lived keys); CI
+  verifies both. To check an image yourself:
+
+  ```bash
+  cosign verify ghcr.io/vladyslav-krutii/secscan@sha256:<digest>     --certificate-identity-regexp '^https://github.com/vladyslav-krutii/secscan/\.github/workflows/ci\.yml@refs/heads/main$'     --certificate-oidc-issuer https://token.actions.githubusercontent.com
+  cosign verify-attestation --type spdxjson <same flags> ghcr.io/vladyslav-krutii/secscan@sha256:<digest>
+  ```
 - The scanner has an SSRF guard: only `http`/`https` on ports 80/443, only
   globally routable addresses, every redirect re-validated, and the connection
   pinned to the validated IP. See "Security write-up" in the README.

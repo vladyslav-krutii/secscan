@@ -374,3 +374,52 @@ Grafana спершу не стартувала, бо порт 3000 був зай
 **Документація.**
 - https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/
 - https://docs.docker.com/reference/compose-file/services/#ports
+
+### 7021aed: SBOM (Syft) і підпис образу Cosign keyless
+
+**Що і навіщо.**
+- **SBOM** (Software Bill of Materials) — це «склад продукту»: список усіх
+  пакетів в образі з версіями. Коли з'явиться новий CVE, можна одразу
+  дізнатися, чи він нас стосується.
+- **Підпис** доводить, що образ зібрав саме наш CI з `main`, а не хтось, хто
+  отримав доступ до GHCR.
+- **Keyless** означає, що немає приватного ключа, який можна вкрасти.
+  GitHub видає OIDC-токен, Sigstore (Fulcio) за ним видає сертифікат на 10
+  хвилин, а запис про підпис потрапляє в публічний журнал Rekor.
+
+| Рядок | Що робить / навіщо |
+|---|---|
+| `needs: build-scan-push` | Підписуємо тільки після тестів, сканів і пушу. |
+| `if: github.event_name == 'push'` | На PR образ не пушиться, тож і підписувати нічого. |
+| `id-token: write` | Дозволяє отримати OIDC-токен. Є **лише** в цьому джобі: менше місць, звідки можна отримати підпис. |
+| `packages: write` | Підпис і атестація зберігаються в GHCR поруч з образом. |
+| `REF: image@digest` | Працюємо з digest, а не з тегом: тег можна пересунути на інший образ, digest — ні. |
+| `IDENTITY` / `ISSUER` | Кому довіряємо: файл `ci.yml` на `refs/heads/main`, токен від GitHub. |
+| `docker login` | Syft і Cosign читають з `~/.docker/config.json` доступ до GHCR. |
+| Syft `-o spdx-json` | Генерує SBOM у стандартному форматі SPDX. |
+| `upload-artifact` | Зберігає SBOM як файл, який можна завантажити зі сторінки CI. |
+| `cosign sign --yes` | Keyless-підпис. `--yes` підтверджує, що запис піде в публічний Rekor. |
+| `cosign attest --type spdxjson` | Підписаний SBOM, прив'язаний до цього digest. |
+| `cosign verify` / `verify-attestation` | Перевіряємо одразу. Без `--certificate-identity` перевірка б пройшла для **будь-кого**, хто підписав через Sigstore. |
+
+**Питання.**
+- *Що таке keyless signing і чим він кращий за ключ?* — Підпис робиться
+  короткоживучим сертифікатом, виданим на OIDC-ідентичність CI. Немає
+  довгоживучого секрету, який треба зберігати, ротувати і який можна вкрасти.
+  Довіра йде від того, хто підписав (workflow + репо + гілка), а прозорість
+  дає журнал Rekor.
+- *Навіщо `--certificate-identity` при verify?* — Sigstore публічний,
+  підписати будь-що може кожен. Без перевірки ідентичності «підписано» нічого
+  не означає. Ми перевіряємо, що підписав саме наш workflow на `main`.
+- *Навіщо SBOM, якщо є Trivy?* — Trivy дає знімок на момент сканування. SBOM
+  лишається з образом, і за ним можна перевірити новий CVE через місяць без
+  повторного сканування. Також SBOM вимагають регулятори (EO 14028, EU CRA).
+- *Чому підписувати digest, а не тег?* — Тег `latest` змінюється, тому підпис
+  тегу нічого не гарантує. Digest — це хеш вмісту.
+
+**Документація.**
+- https://docs.sigstore.dev/cosign/signing/signing_with_containers/
+- https://docs.sigstore.dev/cosign/verifying/verify/
+- https://docs.sigstore.dev/cosign/verifying/attestation/
+- https://github.com/anchore/syft#readme
+- https://docs.github.com/en/actions/security-for-github-actions/security-hardening-your-deployments/about-security-hardening-with-openid-connect

@@ -1,22 +1,35 @@
-# Next session: Phase 4 slice 2, SBOM + image signing
+# Next session: Phase 5, Kubernetes hardening
 
-**Phase 4 slice 1 is done** (c29a066 … f3ee57b): actions pinned by SHA,
-least-privilege `permissions:`, Gitleaks, Semgrep, pip-audit, Trivy 0.76.2
-with SARIF upload; FastAPI 0.165.0 / Starlette 1.10; base image pinned by
-digest, no pip/setuptools in the runtime image. Study notes: `docs/LEARNING.md`
-(append an entry after every commit).
+**Phase 4 is done.**
+- Slice 1 (c29a066 … 590b6e1): SHA pins, least-privilege `permissions:`,
+  Gitleaks, Semgrep, pip-audit, Trivy SARIF, base image pinned by digest.
+- Slice 2 (7021aed): Syft SPDX SBOM, Cosign keyless signing and SBOM
+  attestation by digest, verified in CI (`sbom-sign` job, the only one with
+  `id-token: write`).
 
-## Slice 2 plan
+Study notes are in `docs/LEARNING.md`; add an entry after every commit.
 
-- SBOM with Syft (SPDX or CycloneDX JSON) for the pushed image; upload as a
-  build artifact and attach it to the image as an attestation.
-- Sign the image by digest with Cosign keyless (GitHub OIDC,
-  `id-token: write` only in that job) and attest the SBOM.
-- Verify in CI: `cosign verify` / `cosign verify-attestation` with
-  `--certificate-identity` (this workflow) and
-  `--certificate-oidc-issuer https://token.actions.githubusercontent.com`.
-- Push by digest, not only by tag; sign what was scanned.
-- Check current stable Syft/Cosign versions; pin actions/images by SHA/digest.
+## Phase 5 plan (draft, confirm at the start)
+
+- NetworkPolicy: default deny; ingress to the API only from the ingress
+  controller. Egress: DNS plus 80/443 to the internet, but no pod or service
+  CIDRs and no cloud metadata (169.254.169.254). This is a second SSRF layer
+  under the app-level guard.
+- After that, narrow `SECSCAN_TRUSTED_PROXIES` to the ingress controller.
+- Pod Security Admission `restricted` on the namespace. Keep: seccomp
+  `RuntimeDefault`, `automountServiceAccountToken: false`, resource limits.
+- Deploy by digest, not by `latest`. Optional: admission check of the Cosign
+  signature (Kyverno or the sigstore policy-controller) in kind.
+- kind needs a CNI that enforces NetworkPolicy (Calico or Cilium); the
+  default kindnet does not.
+
+## Known simplifications in slice 2
+
+- Trivy scans the locally loaded build, then the push step rebuilds from the
+  same GHA cache. The image is the same, but the digest that gets signed is
+  the pushed one, not the one that was scanned. A stricter version would
+  push once, then scan and sign that exact digest.
+- No SLSA build provenance yet (`actions/attest-build-provenance`).
 
 ## Live check: done 2026-11-20
 
@@ -27,7 +40,7 @@ the Grafana "Abuse protection & SSRF guard" panel showed the 429s. Grafana's
 host port is now `${GRAFANA_PORT:-3000}` (3000 was taken by another
 container).
 
-## Open items from slice 1
+## Open items from Phase 4
 
 - zlib1g CVE-2026-85091 (HIGH): **accepted until 2026-12-10** (`.trivyignore`
   with `exp:`, SECURITY.md "Accepted risks"). Before that date: merge the
