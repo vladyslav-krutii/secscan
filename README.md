@@ -87,6 +87,11 @@ docker compose up --build -d
 | Prometheus  | http://localhost:9090                     |
 | Grafana     | http://localhost:3000 (anonymous admin)   |
 
+If host port 3000 is already in use, pick another one for Grafana:
+`GRAFANA_PORT=3001 docker compose up -d` (PowerShell:
+`$env:GRAFANA_PORT=3001; docker compose up -d`), then open
+http://localhost:3001.
+
 Generate some traffic, then watch it on the Grafana **SecScan Overview** dashboard:
 
 ```bash

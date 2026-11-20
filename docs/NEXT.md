@@ -18,17 +18,14 @@ digest, no pip/setuptools in the runtime image. Study notes: `docs/LEARNING.md`
 - Push by digest, not only by tag; sign what was scanned.
 - Check current stable Syft/Cosign versions; pin actions/images by SHA/digest.
 
-## Live check (needs Docker Desktop running)
+## Live check: done 2026-11-20
 
-Not done after the FastAPI 0.165.0 / Starlette 1.10 bump yet:
-
-```powershell
-cd C:\Users\vkryt\Cybersecurity\secscan; docker compose up -d --build; Start-Sleep 10; Invoke-RestMethod "http://localhost:8000/scan?url=https://github.com" | Select-Object score, grade
-cd C:\Users\vkryt\Cybersecurity\secscan; 1..12 | ForEach-Object { (curl.exe -s -o NUL -w "%{http_code} " "http://localhost:8000/scan?url=https://example.com") }
-```
-
-Expected: a grade for github.com; the burst shows 200s, then 429 after ~10
-requests (slowapi 0.1.10 on Starlette 1.10 at runtime, not only in tests).
+After the FastAPI 0.165.0 / Starlette 1.10 bump, on the compose stack:
+github.com scored 83 (grade B); a 12-request burst gave 200×8 then 429×4
+(two earlier requests in the same minute also counted against 10/minute);
+the Grafana "Abuse protection & SSRF guard" panel showed the 429s. Grafana's
+host port is now `${GRAFANA_PORT:-3000}` (3000 was taken by another
+container).
 
 ## Open items from slice 1
 

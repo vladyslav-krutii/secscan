@@ -347,3 +347,30 @@ setuptools мав CVE. Trivy позначив starlette- і setuptools-CVE як 
 **Документація.**
 - https://trivy.dev/latest/docs/configuration/filtering/
 - https://security-tracker.debian.org/tracker/
+
+### Live check після бампу + порт Grafana через змінну
+
+**Що і навіщо.** Тести проходили, але треба було перевірити, що на справжньому
+Docker-стеку все працює з новими FastAPI і Starlette. Результати:
+- github.com: оцінка 83, грейд B;
+- серія з 12 запитів: 8 разів 200, потім 4 рази 429, тобто slowapi працює і в
+  рантаймі;
+- Grafana показала 429.
+
+Grafana спершу не стартувала, бо порт 3000 був зайнятий іншим контейнером.
+Тому хост-порт тепер `${GRAFANA_PORT:-3000}`.
+
+**Питання.**
+- *Навіщо live check, якщо є 188 тестів?* — Тести використовують фейкову
+  мережу і TestClient. Live check перевіряє реальний образ, реальну мережу і
+  моніторинг: те, що тести не покривають (smoke test).
+- *Чому 429 прийшов уже після 8 запитів, а не після 10?* — Ліміт рахується на
+  клієнта за ковзне вікно в 1 хвилину. Два попередні запити в цю ж хвилину
+  теж зарахувались.
+- *Що означає `${GRAFANA_PORT:-3000}`?* — Compose підставляє змінну
+  середовища, а якщо вона не задана, то значення за замовчуванням 3000.
+  Конфіг один, а кожен розробник може змінити порт у себе.
+
+**Документація.**
+- https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/
+- https://docs.docker.com/reference/compose-file/services/#ports
