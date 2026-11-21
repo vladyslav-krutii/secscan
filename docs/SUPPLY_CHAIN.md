@@ -22,7 +22,7 @@ flowchart LR
 
 | Job | What it does | Fails the build when |
 |---|---|---|
-| `test` | `ruff check`, `pytest` (188 tests), renders `k8s/policy` and `k8s/overlays/kind`, checks the image is pinned `@sha256:` | lint/test error, broken overlay, image by tag |
+| `test` | `ruff check`, `pytest` (189 tests), renders `k8s/policy` and `k8s/overlays/kind`, checks the image is pinned `@sha256:` | lint/test error, broken overlay, image by tag |
 | `secrets` | Gitleaks over the **whole history** | any secret found |
 | `sast` | Semgrep `p/python`, `p/dockerfile`, `p/github-actions` | any finding |
 | `deps` | pip-audit over the resolved tree of `requirements*.txt` (incl. transitive) | any known vulnerability, or a package it cannot check (`--strict`) |

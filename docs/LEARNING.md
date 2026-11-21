@@ -768,3 +768,31 @@ ServiceAccount немає, запис у `/app` падає (read-only), uid = 10
 **Документація.**
 - https://owasp.org/www-community/Improper_Error_Handling
 - https://kubernetes.io/docs/tasks/debug/debug-application/get-shell-running-container/
+
+### `docs/THREAT_MODEL.md`: STRIDE з доказами
+
+**Що і навіщо.** Модель загроз за STRIDE по межах довіри: TB1 інтернет →
+API, TB2 API → довільний URL, TB3 pod → мережа кластера, TB4–TB6 коміт → CI
+→ GHCR → admission. 29 загроз у форматі **загроза → контроль → де → як
+перевірено** (назва тесту, CI-gate або розділ `k8s-verify.sh`). Чесно
+позначено «review only» там, де автоматичної перевірки немає. Окремо
+таблиця прийнятих ризиків з датами перегляду: DNS oracle, лише перший IP,
+rate limit у пам'яті, zlib до 2026-12-10, port-forward, IPv6 egress, немає
+SLSA, анонімний admin у compose Grafana. Усі назви тестів у документі
+перевірені скриптом: вони існують.
+
+**Питання.**
+- *Що таке STRIDE?* — Spoofing, Tampering, Repudiation, Information
+  disclosure, Denial of service, Elevation of privilege. Чекліст категорій,
+  щоб для кожної межі довіри не пропустити тип атаки.
+- *Чим threat model корисна, крім документа?* — Вона показує прогалини. Тут
+  вона знайшла неперевірене твердження (IP у помилці), і на нього з'явився
+  тест. Контроль без доказу — це надія.
+- *Що таке прийнятий ризик і як ним керувати?* — Свідоме рішення не
+  виправляти зараз: з причиною, власником і датою перегляду. Без дати
+  тимчасове виключення стає постійним.
+
+**Документація.**
+- https://owasp.org/www-community/Threat_Modeling_Process
+- https://learn.microsoft.com/en-us/azure/security/develop/threat-modeling-tool-threats
+- https://owasp.org/www-project-threat-dragon/
