@@ -486,3 +486,52 @@ Blocked targets (SSRF) = 3. Тобто захист не тільки працю
 - https://trivy.dev/latest/docs/target/container_image/#container-registry
 - https://docs.docker.com/reference/cli/docker/buildx/imagetools/create/
 - https://docs.docker.com/build/ci/github-actions/push-multi-registries/
+
+### Kustomize: base + overlay для kind, деплой за digest, захищений pod
+
+**Що і навіщо.** Плоскі маніфести `k8s/*.yaml` замінено на Kustomize:
+
+- `k8s/namespace/` — Namespace з **Pod Security Admission `restricted`**
+  (`enforce`). API server сам відхиляє pod, що запускається від root, з
+  capabilities, hostPath, hostNetwork тощо. `enforce-version: v1.36`
+  закріплено: оновлення кластера не змінить правила тихо.
+- `k8s/base/` — загальне для будь-якого кластера: ServiceAccount,
+  Deployment, Service, PodDisruptionBudget.
+- `k8s/overlays/kind/` — тільки те, що специфічне для середовища: **digest**
+  образу, який підписав CI (`images: digest:`). Тегу `:latest` більше немає.
+
+У pod:
+
+| Що | Навіщо |
+|---|---|
+| Свій ServiceAccount + `automountServiceAccountToken: false` | Додаток не ходить в API Kubernetes, тому токен не монтується: якщо pod зламають, красти нічого. |
+| `enableServiceLinks: false` | Без змінних `<SVC>_SERVICE_HOST` для всіх сервісів: менше підказок про внутрішню мережу. |
+| `runAsNonRoot`, uid/gid 10001, seccomp `RuntimeDefault` | Вимоги `restricted`; seccomp обрізає небезпечні syscalls. |
+| `readOnlyRootFilesystem`, `drop: ALL`, без privilege escalation | Нападник не може дописати файли чи отримати root-можливості. `/tmp` — маленький `emptyDir` 16 Mi. |
+| requests/limits (CPU, пам'ять, ephemeral-storage) | Один pod не з'їсть вузол; ліміт диска захищає від заповнення `/tmp`. |
+| startup/liveness/readiness probes | startup дає час стартувати, readiness прибирає pod з Service, поки він не готовий, liveness перезапускає завислий. |
+| 2 репліки, `topologySpreadConstraints`, PDB `minAvailable: 1`, `maxUnavailable: 0` | `kubectl drain` чи оновлення не покладуть сервіс повністю. |
+
+Перевірено на `kind-k8s-lab`: 2/2 Running, образ
+`ghcr.io/vladyslav-krutii/secscan@sha256:e200399…`, PSA пропустив.
+
+**Питання.**
+- *Чому деплоїти за digest, а не за тегом?* — Тег — змінний вказівник:
+  `latest` сьогодні й завтра можуть бути різними образами, а різні вузли
+  можуть мати різні версії в кеші. Digest — хеш вмісту: завжди той самий
+  образ, саме той, що сканували і підписали.
+- *Що таке Pod Security Admission і чим він відрізняється від Kyverno?* —
+  PSA вбудований в API server і має три фіксовані профілі (privileged,
+  baseline, restricted), вмикається міткою на namespace. Kyverno — окремий
+  admission webhook з довільними правилами (наприклад, перевірка підпису).
+  PSA — базова гігієна, Kyverno — політики організації.
+- *Навіщо PodDisruptionBudget?* — Він обмежує **добровільні** порушення
+  (drain, autoscaler): Kubernetes не виселить pod, якщо лишиться менше
+  `minAvailable`. Від падіння вузла він не рятує, для цього репліки й spread.
+
+**Документація.**
+- https://kubernetes.io/docs/concepts/security/pod-security-admission/
+- https://kubernetes.io/docs/concepts/security/pod-security-standards/
+- https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/images/
+- https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/#opt-out-of-api-credential-automounting
+- https://kubernetes.io/docs/tasks/run-application/configure-pdb/

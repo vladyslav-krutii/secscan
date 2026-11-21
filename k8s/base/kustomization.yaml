@@ -1,0 +1,15 @@
+# Generic, cluster-independent hardening for SecScan.
+# Overlays pin the image digest; k8s/policy adds the admission check.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: secscan
+labels:
+  - pairs:
+      app.kubernetes.io/name: secscan
+      app.kubernetes.io/part-of: secscan
+resources:
+  - ../namespace
+  - serviceaccount.yaml
+  - deployment.yaml
+  - service.yaml
+  - pdb.yaml

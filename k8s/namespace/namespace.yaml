@@ -1,0 +1,15 @@
+# Pod Security Admission: "restricted" is enforced, so the API server itself
+# rejects pods that run as root, keep capabilities, use host namespaces, etc.
+# enforce-version is pinned so a cluster upgrade cannot silently change the
+# rules; warn/audit follow "latest" to show what a newer profile would flag.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: secscan
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: v1.36
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest

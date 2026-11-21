@@ -1,0 +1,10 @@
+# Deploy into the kind lab cluster (Calico + Kyverno), by digest:
+#   make k8s-deploy   (policy first, then this overlay)
+# The digest is the one CI signed; update it with `make k8s-pin`.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+images:
+  - name: ghcr.io/vladyslav-krutii/secscan
+    digest: sha256:e20039955058f3bcf2ae2d7101604386c8cdb0f4f2886a0f61110d135e595628

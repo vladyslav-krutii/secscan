@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: secscan
+  labels:
+    app: secscan
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: secscan
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: secscan
+    spec:
+      serviceAccountName: secscan
+      automountServiceAccountToken: false
+      # No <SVC>_SERVICE_HOST/_PORT env vars for every Service in the
+      # namespace: less internal topology handed to the process.
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: secscan
+      containers:
+        - name: api
+          # Overlays replace this with the exact digest CI signed.
+          image: ghcr.io/vladyslav-krutii/secscan
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            # Empty = believe no X-Forwarded-For, use the TCP peer. With
+            # kubectl port-forward there is no proxy in front of the pod.
+            # The ingress component narrows this to the controller pods.
+            - name: SECSCAN_TRUSTED_PROXIES
+              value: ""
+            - name: SECSCAN_RATE_LIMIT
+              value: "10/minute"
+            - name: SECSCAN_SCAN_DEADLINE_SECONDS
+              value: "10"
+            - name: SECSCAN_MAX_CONCURRENT_SCANS
+              value: "10"
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+              ephemeral-storage: "16Mi"
+            limits:
+              cpu: "250m"
+              memory: "128Mi"
+              ephemeral-storage: "64Mi"
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 2
+            failureThreshold: 15
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # The root filesystem is read-only; a small scratch dir for
+        # libraries that expect a writable /tmp.
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi
