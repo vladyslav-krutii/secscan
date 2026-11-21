@@ -109,7 +109,9 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      - name: Build image (load locally for scanning)
+      # Pull request: build once and load it into the local Docker daemon.
+      - name: Build image (PR, local only)
+        if: github.event_name != 'push'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -118,17 +120,57 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Log in to GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Push to main: build ONCE and push only the immutable :<sha> tag.
+      # Everything below (Trivy, Cosign) works on this exact digest, so the
+      # image that is scanned is the image that is signed. :latest is moved
+      # only after the scan gate and the signature check (sbom-sign job).
+      - name: Build and push image (main)
+        id: push
+        if: github.event_name == 'push'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          push: true
+          tags: ${{ env.IMAGE }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Pick the scan target
+        env:
+          EVENT: ${{ github.event_name }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+          SHA: ${{ github.sha }}
+        run: |
+          if [ "$EVENT" = "push" ]; then
+            # The pushed digest, read from the registry (no local copy).
+            echo "SCAN_REF=${IMAGE}@${DIGEST}" >> "$GITHUB_ENV"
+            echo "SCAN_SRC=remote" >> "$GITHUB_ENV"
+          else
+            echo "SCAN_REF=${IMAGE}:${SHA}" >> "$GITHUB_ENV"
+            echo "SCAN_SRC=docker" >> "$GITHUB_ENV"
+          fi
+          mkdir -p "$HOME/.docker" "$HOME/.cache/trivy"
+
       - name: Trivy scan (HIGH/CRITICAL → SARIF)
         run: |
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$HOME/.docker:/root/.docker:ro" \
             -v "$HOME/.cache/trivy:/root/.cache/trivy" \
             -v "$PWD:/out" \
-            "$TRIVY" image \
+            "$TRIVY" image --image-src "$SCAN_SRC" \
             --ignorefile /out/.trivyignore \
             --severity HIGH,CRITICAL --ignore-unfixed \
             --format sarif --output /out/trivy.sarif \
-            "${IMAGE}:${{ github.sha }}"
+            "$SCAN_REF"
 
       - name: Upload Trivy results to the Security tab
         if: always() && hashFiles('trivy.sarif') != ''
@@ -141,32 +183,13 @@ jobs:
         run: |
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$HOME/.docker:/root/.docker:ro" \
             -v "$HOME/.cache/trivy:/root/.cache/trivy" \
             -v "$PWD/.trivyignore:/.trivyignore:ro" \
-            "$TRIVY" image \
+            "$TRIVY" image --image-src "$SCAN_SRC" \
             --ignorefile /.trivyignore \
             --severity CRITICAL --ignore-unfixed --exit-code 1 \
-            "${IMAGE}:${{ github.sha }}"
-
-      - name: Log in to GHCR
-        if: github.event_name == 'push'
-        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Push image
-        id: push
-        if: github.event_name == 'push'
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ env.IMAGE }}:latest
-            ${{ env.IMAGE }}:${{ github.sha }}
-          cache-from: type=gha
+            "$SCAN_REF"
 
   sbom-sign:
     name: SBOM, sign & verify image
@@ -179,7 +202,9 @@ jobs:
       id-token: write # GitHub OIDC token for Cosign keyless signing
     env:
       SYFT: anchore/syft:v1.57.2@sha256:e97e20b6e6d1699c60296b66ab337941724f9bd06ac279d893eda89601fc4b2a
+      IMAGE: ${{ needs.build-scan-push.outputs.image }}
       # Always refer to the image by digest: a tag can be moved, a digest cannot.
+      # It is the same digest Trivy scanned in the previous job.
       REF: ${{ needs.build-scan-push.outputs.image }}@${{ needs.build-scan-push.outputs.digest }}
       # Who is allowed to have signed it: this workflow on main, via GitHub OIDC.
       IDENTITY: ${{ github.server_url }}/${{ github.workflow_ref }}
@@ -199,7 +224,10 @@ jobs:
 
       - name: SBOM (Syft, SPDX JSON)
         run: |
-          docker run --rm             -v "$HOME/.docker/config.json:/config/config.json:ro" -e DOCKER_CONFIG=/config             -v "$PWD:/out"             "$SYFT" "registry:$REF" -o spdx-json=/out/sbom.spdx.json
+          docker run --rm \
+            -v "$HOME/.docker/config.json:/config/config.json:ro" -e DOCKER_CONFIG=/config \
+            -v "$PWD:/out" \
+            "$SYFT" "registry:$REF" -o spdx-json=/out/sbom.spdx.json
 
       - name: Upload SBOM as a build artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -215,6 +243,20 @@ jobs:
 
       - name: Verify signature and SBOM attestation
         run: |
-          cosign verify             --certificate-identity "$IDENTITY" --certificate-oidc-issuer "$ISSUER"             "$REF" > /dev/null
-          cosign verify-attestation --type spdxjson             --certificate-identity "$IDENTITY" --certificate-oidc-issuer "$ISSUER"             "$REF" > /dev/null
+          cosign verify \
+            --certificate-identity "$IDENTITY" --certificate-oidc-issuer "$ISSUER" \
+            "$REF" > /dev/null
+          cosign verify-attestation --type spdxjson \
+            --certificate-identity "$IDENTITY" --certificate-oidc-issuer "$ISSUER" \
+            "$REF" > /dev/null
           echo "Verified signature and SBOM attestation for $REF"
+
+      # Only now does :latest point at the new image: scanned, signed and
+      # verified. imagetools re-tags in the registry; nothing is rebuilt.
+      - name: Move :latest to the verified digest
+        run: docker buildx imagetools create --tag "${IMAGE}:latest" "$REF"
+
+      - name: Summary
+        run: |
+          echo "### Signed image" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`$REF\`" >> "$GITHUB_STEP_SUMMARY"
