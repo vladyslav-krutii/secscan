@@ -1,0 +1,43 @@
+# Only images signed by this repository's CI workflow on main may run in
+# the secscan namespace. Keyless: there is no public key to manage; trust
+# is the identity in the Fulcio certificate (who signed) plus the OIDC
+# issuer (who vouched for that identity), checked against the Rekor log.
+apiVersion: policies.kyverno.io/v1
+kind: NamespacedImageValidatingPolicy
+metadata:
+  name: verify-secscan-signature
+spec:
+  validationActions: ["Deny"]
+  failurePolicy: Fail # if Kyverno cannot verify, the pod is not admitted
+  webhookConfiguration:
+    timeoutSeconds: 20
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  # Every image in the namespace, not only ours: a sidecar or a debug pod
+  # from anywhere else is denied too.
+  matchImageReferences:
+    - glob: "*"
+  validationConfigurations:
+    required: true     # every matched image must pass
+    verifyDigest: true # and be referenced by digest
+    mutateDigest: false
+  attestors:
+    - name: secscanci
+      cosign:
+        keyless:
+          identities:
+            - subject: https://github.com/vladyslav-krutii/secscan/.github/workflows/ci.yml@refs/heads/main
+              issuer: https://token.actions.githubusercontent.com
+        ctlog:
+          url: https://rekor.sigstore.dev
+  validations:
+    - expression: >-
+        images.containers.map(image,
+          verifyImageSignatures(image, [attestors.secscanci])).all(n, n > 0)
+      message: >-
+        image is not signed by github.com/vladyslav-krutii/secscan
+        (.github/workflows/ci.yml on refs/heads/main)

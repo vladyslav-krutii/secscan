@@ -595,3 +595,53 @@ pod CIDR безпечно **лише разом** із цим правилом: 
 - https://docs.tigera.io/calico/latest/network-policy/get-started/kubernetes-policy/kubernetes-network-policy
 - https://kubectl.docs.kubernetes.io/guides/config_management/components/
 - https://kubernetes.io/docs/reference/access-authn-authz/rbac/#referring-to-resources
+
+### Kyverno: у namespace `secscan` запускаються лише образи, підписані нашим CI
+
+**Що і навіщо.** `k8s/policy/verify-image-signature.yaml` описує
+`NamespacedImageValidatingPolicy` (Kyverno 1.20, CEL, `policies.kyverno.io/v1`).
+Під час створення pod Kyverno перевіряє **кожен** образ (`glob: "*"`):
+
+- підпис Cosign keyless, де в сертифікаті Fulcio **точна** ідентичність
+  `https://github.com/vladyslav-krutii/secscan/.github/workflows/ci.yml@refs/heads/main`
+  і issuer `https://token.actions.githubusercontent.com`; запис має бути в
+  Rekor;
+- образ указано **за digest** (`verifyDigest: true`);
+- `failurePolicy: Fail`: якщо Kyverno недоступний або не зміг перевірити,
+  pod не пропускається (fail closed).
+
+Policy застосовується **першою** (`kubectl apply -k k8s/policy`, чекаємо
+`ready: true`), і лише потім workload. Інакше pod міг би проскочити до того,
+як з'явилась перевірка.
+
+**Доказ** (`--dry-run=server`: webhooks відпрацьовують, але нічого не
+створюється; pod відповідає PSA, тож відмову дає саме Kyverno):
+
+| Образ | Результат |
+|---|---|
+| наш `@sha256:e200399…` | admitted |
+| `busybox@sha256:…` | denied: `no signatures found` |
+| `ghcr.io/sigstore/cosign/cosign@sha256:…` (підписаний, але Sigstore) | denied: `expected SAN …secscan…ci.yml@refs/heads/main, got keyless@projectsigstore…` |
+| наш `:latest` | denied: `does not have a digest` |
+
+Третій рядок найважливіший: «підписано» нічого не означає без перевірки
+**ким** підписано. Sigstore публічний, підписати може кожен.
+
+**Питання.**
+- *Що буде, якщо нападник запушить свій образ у наш GHCR?* — Підписати його
+  нашою ідентичністю він не зможе: для цього потрібен OIDC-токен саме нашого
+  workflow на `main`, тобто запуск у нашому репо. Kyverno його не пропустить.
+  Тому захищати треба ще й сам CI: branch protection, review, pinned actions.
+- *Чому `failurePolicy: Fail`, а не `Ignore`?* — `Ignore` означає: Kyverno
+  впав — пропускаємо все. Нападнику достатньо покласти webhook. Ціна `Fail`:
+  якщо Kyverno лежить, нові pod'и не стартують (але тільки в цьому namespace).
+- *Чим перевірка в кластері відрізняється від `cosign verify` у CI?* — CI
+  перевіряє, що він щойно підписав правильно. Admission-перевірка захищає
+  момент запуску: хто б і як не створив pod (kubectl, Helm, нападник з
+  украденим kubeconfig), непідписаний образ не стартує.
+
+**Документація.**
+- https://kyverno.io/docs/policy-types/image-validating-policy/
+- https://kyverno.io/docs/policy-types/image-validating-policy/#cosign-keyless
+- https://docs.sigstore.dev/certificate_authority/oidc-in-fulcio/
+- https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/#failure-policy

@@ -1,0 +1,8 @@
+# Admission policy for the secscan namespace. Apply it before the workload,
+# so no pod is admitted before the check exists.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: secscan
+resources:
+  - ../namespace
+  - verify-image-signature.yaml
