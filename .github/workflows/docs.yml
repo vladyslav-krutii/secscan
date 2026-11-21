@@ -1,0 +1,42 @@
+name: Docs links
+
+# Separate from CI on purpose: an external docs site being down must not
+# block an image build. Runs when Markdown changes, weekly (docs rot), and
+# on demand.
+on:
+  push:
+    branches: [main]
+    paths: ["**/*.md", ".github/workflows/docs.yml"]
+  pull_request:
+    paths: ["**/*.md", ".github/workflows/docs.yml"]
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  links:
+    name: Check links (lychee)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: lychee
+        # Excluded: internal addresses used as SSRF examples, the Sigstore
+        # certificate identity (a string, not a page), local URLs.
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            lycheeverse/lychee:0.24.2@sha256:e2d19e57cf6ab037026f20b8e449a1f30d9d7f81eef4194763aab2eab20bd28d \
+            --no-progress --include-fragments --max-retries 3 --timeout 30 \
+            --accept '200..=299,429' \
+            --exclude '^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0|prometheus|grafana|api|internal\.example|secscan\.local)([:/]|$)' \
+            --exclude '^https?://(10\.|169\.254\.|2130706433|\[)' \
+            --exclude 'workflows/ci\.yml@refs/heads/main' \
+            --exclude '^https://token\.actions\.githubusercontent\.com' \
+            --exclude 'postman-echo\.com/redirect-to\?url=$' \
+            --exclude-path .venv \
+            './**/*.md'

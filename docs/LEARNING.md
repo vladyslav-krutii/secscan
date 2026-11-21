@@ -879,3 +879,25 @@ planned», дублікати розділів, які тепер у `docs/`.
 **Документація.**
 - https://github.com/lycheeverse/lychee
 - https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/creating-diagrams
+
+### Окремий workflow `docs.yml`: перевірка посилань (lychee)
+
+**Що і навіщо.** Посилання в документації «гниють»: сторінки переїжджають,
+якорі змінюються. lychee (образ запінений по digest) перевіряє всі `*.md`:
+зовнішні URL, відносні файли і `#якорі` (`--include-fragments`).
+Запускається при зміні Markdown, щопонеділка і вручну. Це **окремий**
+workflow, а не job у CI: недоступний чужий сайт не повинен блокувати
+збірку і підпис образу. Внутрішні адреси з SSRF-прикладів
+(`http://prometheus`, `169.254.169.254`…) і рядок identity Sigstore
+виключені: це не сторінки. Права мінімальні: `contents: read`.
+
+**Питання.**
+- *Чому link check не в основному CI?* — Він залежить від чужих серверів.
+  Блокувати реліз через те, що впав сайт документації, — хибна тривога, і
+  тоді gate почнуть ігнорувати. Окремий workflow сигналізує, не блокуючи.
+- *Навіщо `schedule`, якщо є запуск на зміни?* — Посилання ламаються без
+  наших змін, коли чужий сайт переїжджає. Розклад це ловить.
+
+**Документація.**
+- https://lychee.cli.rs/
+- https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#schedule
