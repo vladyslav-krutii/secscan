@@ -820,3 +820,31 @@ SLSA, анонімний admin у compose Grafana. Усі назви тесті�
 
 **Документація.**
 - https://www.themuse.com/advice/star-interview-method
+
+### README переписано для читача, у якого 2 хвилини
+
+**Що і навіщо.** Новий README:
+- один абзац-пітч: що це і що в ньому цікавого;
+- бейджі: CI, підписаний образ, SBOM;
+- таблиця «What this demonstrates»: AppSec, supply chain, Kubernetes,
+  observability, risk management. У кожному рядку колонка **Evidence**:
+  посилання на тест, документ або verify-скрипт;
+- нова Mermaid-діаграма: коміт → gates → build once → Trivy → підпис →
+  GHCR → admission (PSA + Kyverno) → pod'и з NetworkPolicy → інтернет
+  (внутрішнє заблоковано) і Prometheus/Grafana;
+- скріншоти, короткий quickstart (compose, k8s, локально), стисла таблиця
+  API, таблиця посилань на всі документи.
+
+Застаріле прибрано: стара таблиця оцінок (github.com A 90), «NetworkPolicy
+planned», дублікати розділів, які тепер у `docs/`.
+
+**Питання.**
+- *Що рецензент має побачити в README за 30 секунд?* — Що це, чому
+  цікаво, і що твердження підкріплені доказами (зелений CI, посилання на
+  тести й перевірки). Деталі — тільки за посиланням.
+- *Навіщо діаграма архітектури?* — Вона показує межі довіри й порядок
+  контролів краще за текст. По ній зручно вести розмову на співбесіді.
+
+**Документація.**
+- https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/creating-diagrams
+- https://mermaid.js.org/syntax/flowchart.html
