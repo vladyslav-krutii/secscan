@@ -692,3 +692,29 @@ overlay або тег замість digest валять CI ще до депло
 - https://kubernetes.io/docs/reference/using-api/api-concepts/#dry-run
 - https://kubernetes.io/docs/reference/kubectl/generated/kubectl_kustomize/
 - https://kubernetes.io/docs/tasks/access-application-cluster/port-forward-access-application-cluster/
+
+### Фаза 5 завершена: свіжий digest пройшов увесь ланцюжок
+
+**Що і навіщо.** Після зеленого CI для 7edc642 `k8s-pin` узяв новий digest
+`sha256:91d9f165…` (`:latest` указує на нього лише після `cosign verify`),
+overlay оновлено, rolling update пройшов без простою (`maxUnavailable: 0` +
+PDB), і `k8s-verify.sh` знову дав 11/11. Новий підпис з CI пройшов
+Kyverno, а не лише старий, перевірений вручну. Отже ланцюжок
+**build once → scan → sign → verify → pin → admission** працює від коміту
+до pod'а. `scripts/k8s-verify.sh` тепер з бітом виконання в git.
+
+**Питання.**
+- *Опиши шлях коду від коміту до pod'а і де він може зламатися.* — Push у
+  `main` → тести/SAST/секрети/залежності → одна збірка, push `:<sha>` →
+  Trivy по digest → Syft SBOM, Cosign підпис і атестація → verify → `:latest`
+  → `k8s-pin` записує digest у Git → `kubectl apply` → PSA і Kyverno
+  перевіряють pod → NetworkPolicy обмежує його мережу. Слабкі місця:
+  сам CI (хто може пушити в `main`), ручний pin замість GitOps (Argo CD /
+  Flux), відсутність SLSA provenance.
+- *Чому digest комітиться в Git, а не береться «останній» у кластері?* —
+  Git стає джерелом правди: видно, що саме задеплоєно, коли і ким, і відкат —
+  це `git revert`. Це основа GitOps.
+
+**Документація.**
+- https://opengitops.dev/
+- https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#rolling-update-deployment

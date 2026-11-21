@@ -1,35 +1,57 @@
-# Next session: Phase 5, Kubernetes hardening
+# Next session: Phase 6, README, threat model, interview prep
 
-**Phase 4 is done.**
-- Slice 1 (c29a066 … 590b6e1): SHA pins, least-privilege `permissions:`,
-  Gitleaks, Semgrep, pip-audit, Trivy SARIF, base image pinned by digest.
-- Slice 2 (7021aed): Syft SPDX SBOM, Cosign keyless signing and SBOM
-  attestation by digest, verified in CI (`sbom-sign` job, the only one with
-  `id-token: write`).
+**Phase 5 is done (2026-11-21).** Commits d182d06 … 7edc642 (+ this one).
+- d182d06: CI builds once, pushes `:<sha>`, Trivy scans that `image@digest`,
+  Cosign signs the same digest, `:latest` moves only after verify. Closes the
+  "scanned ≠ signed" gap from slice 2.
+- aa4ad1b: Kustomize (`k8s/namespace`, `base`, `overlays/kind`), deploy by
+  digest, PSA `restricted` (enforce v1.36), own SA without token,
+  non-root/read-only/drop ALL/seccomp, requests/limits, probes, PDB.
+- f5f7b38: default-deny NetworkPolicy; egress only kube-dns + TCP 80/443 to
+  public IPs (private ranges, CGNAT, loopback, link-local excluded); optional
+  ingress component; `SECSCAN_TRUSTED_PROXIES` empty in the base.
+- eaebc92: Kyverno `NamespacedImageValidatingPolicy`: every image by digest
+  and keyless-signed by `ci.yml@refs/heads/main`, fail closed.
+- 7edc642: `scripts/k8s-verify.sh`, make targets, README section, Kustomize
+  render + digest check in CI.
 
-Study notes are in `docs/LEARNING.md`; add an entry after every commit.
+Verified on `kind-k8s-lab` (Calico, Kyverno 1.20): all 11 checks of
+`k8s-verify.sh` pass; control run without NetworkPolicy reaches
+`10.96.0.1:443`, so the block is ours. Deployed digest:
+`sha256:91d9f165…` (pinned via `k8s-pin` after a fresh CI run).
 
-## Phase 5 plan (draft, confirm at the start)
+How to get back into the cluster (main kubeconfig is empty):
+`kind get kubeconfig --name k8s-lab > ~/.kube/kind-k8s-lab.yaml` and
+`$env:KUBECONFIG="$HOME\.kube\kind-k8s-lab.yaml"`.
 
-- NetworkPolicy: default deny; ingress to the API only from the ingress
-  controller. Egress: DNS plus 80/443 to the internet, but no pod or service
-  CIDRs and no cloud metadata (169.254.169.254). This is a second SSRF layer
-  under the app-level guard.
-- After that, narrow `SECSCAN_TRUSTED_PROXIES` to the ingress controller.
-- Pod Security Admission `restricted` on the namespace. Keep: seccomp
-  `RuntimeDefault`, `automountServiceAccountToken: false`, resource limits.
-- Deploy by digest, not by `latest`. Optional: admission check of the Cosign
-  signature (Kyverno or the sigstore policy-controller) in kind.
-- kind needs a CNI that enforces NetworkPolicy (Calico or Cilium); the
-  default kindnet does not.
+## Phase 6 plan (draft, confirm at the start)
 
-## Known simplifications in slice 2
+- **README rewrite** for a reviewer with 2 minutes: what / why / proof at the
+  top (badges, one screenshot, the k8s-verify output), details below. Fix
+  stale bits (example grades table, github.com now B 83).
+- **Threat model** `docs/THREAT_MODEL.md`: STRIDE over the data flow
+  (user → API → internet; CI → GHCR → cluster). Assets, trust boundaries,
+  each threat → control → evidence (test, CI job, verify script) → residual
+  risk. Include the accepted risks and the known limits below.
+- **Architecture diagram** (Mermaid in README): request path with the
+  guards (rate limit, SSRF guard, NetworkPolicy) and the supply chain
+  (build once → scan → sign → Kyverno admission).
+- **Interview prep** `docs/INTERVIEW.md`: 2-minute pitch; 15–20 likely
+  questions with short answers (taken from LEARNING.md Q&A); "what I'd do
+  next" list; a 5-minute live demo script (compose + k8s-verify).
 
-- Trivy scans the locally loaded build, then the push step rebuilds from the
-  same GHA cache. The image is the same, but the digest that gets signed is
-  the pushed one, not the one that was scanned. A stricter version would
-  push once, then scan and sign that exact digest.
-- No SLSA build provenance yet (`actions/attest-build-provenance`).
+## Known simplifications left from Phase 5
+
+- No Prometheus scrape in k8s (the egress/ingress policy would need a rule
+  from the monitoring namespace).
+- Rate-limit counters are per pod (2 replicas ≈ 2× the limit); Redis would
+  fix it.
+- IPv6 egress not covered (kind cluster is IPv4-only); a dual-stack cluster
+  needs a `::/0` rule with `fc00::/7`, `fe80::/10`, `::1/128` excluded.
+- The SBOM attestation is created and verified in CI, but Kyverno checks
+  only the signature, not the attestation. No SLSA provenance yet.
+- `kubectl port-forward` bypasses NetworkPolicy by design; access to it is an
+  RBAC question (`pods/portforward`).
 
 ## Live check: done 2026-11-20
 

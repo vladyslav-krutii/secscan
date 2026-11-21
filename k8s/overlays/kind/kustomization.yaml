@@ -7,4 +7,4 @@ resources:
   - ../../base
 images:
   - name: ghcr.io/vladyslav-krutii/secscan
-    digest: sha256:e20039955058f3bcf2ae2d7101604386c8cdb0f4f2886a0f61110d135e595628
+    digest: sha256:91d9f1653a4f6b57bff9124de7083195fcd845e16a815cb744c4bf64d5dd3c4e
