@@ -48,7 +48,7 @@ flowchart LR
 
     user([User]) -->|"/scan?url="| pods
     pods -->|"only DNS +<br/>public 80/443"| net((Internet))
-    pods -.-x|blocked| internal["K8s API, other pods,<br/>169.254.169.254"]
+    pods -. "blocked" .-> internal["K8s API, other pods,<br/>169.254.169.254"]
     pods -->|"/metrics"| prom["Prometheus"] --> graf["Grafana"]
 ```
 
