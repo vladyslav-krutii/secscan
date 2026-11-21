@@ -645,3 +645,50 @@ Policy застосовується **першою** (`kubectl apply -k k8s/poli
 - https://kyverno.io/docs/policy-types/image-validating-policy/#cosign-keyless
 - https://docs.sigstore.dev/certificate_authority/oidc-in-fulcio/
 - https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/#failure-policy
+
+### Скрипт `k8s-verify.sh`, цілі Makefile, рендер маніфестів у CI
+
+**Що і навіщо.** `scripts/k8s-verify.sh` (`make k8s-verify`) доводить усю
+фазу 5 на живому кластері одним запуском:
+
+1. **Додаток працює**: port-forward на Service, скан `https://github.com`
+   → 83, B.
+2. **Мережа**: сирі TCP-з'єднання **зсередини pod'а** (`kubectl exec … python`),
+   в обхід SSRF-guard. Імітуємо баг у коді. API Kubernetes (Service IP і
+   справжній endpoint `172.19.0.3:6443`), pod і Service у `demo`,
+   `169.254.169.254` → BLOCKED; `github.com:443` → OPEN. Адреси скрипт
+   бере з кластера, нічого не захардкоджено.
+3. **Admission**: `kubectl run --dry-run=server` з підписаним digest,
+   busybox, образом cosign (чужий підпис) і нашим `:latest`.
+
+Скрипт повертає exit 1, якщо хоч одна перевірка впала, тож його можна
+запускати в pipeline.
+
+Makefile: `k8s-render`, `k8s-pin` (бере digest, на який указує `:latest`, а
+він переставляється тільки після verify в CI), `k8s-policy` (apply +
+`kubectl wait` до `ready: true`), `k8s-deploy` (спершу policy), `k8s-verify`,
+`k8s-delete`. На Windows `make` немає, тож у README є і прямі команди
+`kubectl apply -k`.
+
+CI: у джобі `test` додано `kubectl kustomize` для `k8s/policy` і
+`k8s/overlays/kind` + `grep`, що образ указано `@sha256:<64 hex>`. Зламаний
+overlay або тег замість digest валять CI ще до деплою.
+
+**Питання.**
+- *Чому мережу перевіряємо сирими сокетами, а не через `/scan`?* — Через
+  `/scan` ми б перевірили SSRF-guard у коді (400), а не мережу. Мета —
+  показати, що другий шар тримає **сам по собі**, навіть коли перший
+  зламано.
+- *Що таке `--dry-run=server`?* — Запит проходить усю обробку в API server:
+  автентифікацію, mutating і validating admission (PSA, Kyverno webhook), але
+  об'єкт не зберігається в etcd. Ідеально для тестування політик без
+  побічних ефектів.
+- *Як довести, що блокує саме NetworkPolicy, а не щось інше?* — Контрольний
+  експеримент: прибрати політику, побачити OPEN, повернути, побачити
+  BLOCKED. Без контролю «BLOCKED» може бути через DNS, файрвол хоста або
+  чужу політику.
+
+**Документація.**
+- https://kubernetes.io/docs/reference/using-api/api-concepts/#dry-run
+- https://kubernetes.io/docs/reference/kubectl/generated/kubectl_kustomize/
+- https://kubernetes.io/docs/tasks/access-application-cluster/port-forward-access-application-cluster/

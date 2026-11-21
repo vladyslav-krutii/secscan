@@ -113,18 +113,20 @@ make run         # uvicorn with autoreload → http://127.0.0.1:8000/docs
 
 ### 3. Deploy to Kubernetes
 
-Spin up a local cluster with [kind](https://kind.sigs.k8s.io/) and deploy (verified: 2/2 pods, reachable via the Service):
+Kustomize, deployed **by digest** (the one CI scanned and signed) into the
+namespace `secscan`. The cluster needs a CNI that enforces NetworkPolicy
+(Calico/Cilium; kind's default kindnet does not) and Kyverno ≥ 1.16 for the
+signature check. Details: [Kubernetes hardening](#kubernetes-hardening).
 
 ```bash
-kind create cluster --name secscan --config k8s/kind-config.yaml
-kind load docker-image secscan:local --name secscan
-kubectl apply -f k8s/deployment.yaml -f k8s/service.yaml
-kubectl set image deployment/secscan api=secscan:local   # use the locally loaded image
-kubectl rollout status deployment/secscan
-kubectl port-forward svc/secscan 8088:80                 # curl http://localhost:8088/health
+kubectl apply -k k8s/policy          # namespace (PSA restricted) + Kyverno policy first
+kubectl apply -k k8s/overlays/kind   # the app, pinned to a signed digest
+kubectl -n secscan rollout status deploy/secscan
+bash scripts/k8s-verify.sh           # prove it: app, network, admission
 ```
 
-Against a real cluster the image comes from GHCR (`k8s/deployment.yaml`) and `k8s/ingress.yaml` exposes it.
+With `make`: `make k8s-deploy k8s-verify`; `make k8s-pin` moves the overlay to
+the digest `:latest` points to (moved only after CI verified the signature).
 
 ---
 
@@ -185,11 +187,15 @@ Example grades from a quick run:
 
 On every push / pull request (`.github/workflows/ci.yml`):
 
-1. **Lint** — `ruff check`
-2. **Test** — `pytest`
-3. **Build** — multi-stage Docker image (with layer caching)
-4. **Scan** — Trivy reports HIGH/CRITICAL and fails the build on CRITICAL
-5. **Push** — image published to **GHCR** as `latest` + commit SHA (on `main`)
+1. **Lint & test** — `ruff check`, `pytest`, Kustomize render of `k8s/`
+2. **Secrets / SAST / deps** — Gitleaks, Semgrep, pip-audit
+3. **Build once & push** — multi-stage image, pushed to **GHCR** as `:<sha>`
+   only (on `main`; PRs build locally)
+4. **Scan** — Trivy scans that exact `image@digest` (SARIF to the Security
+   tab) and fails on CRITICAL
+5. **SBOM & sign** — Syft SPDX SBOM, Cosign keyless signature and SBOM
+   attestation on the **same digest**, verified; only then `:latest` is moved
+   to it (registry re-tag, no rebuild)
 
 ## Monitoring & metrics
 
@@ -212,7 +218,10 @@ scans, error rate, scans/sec by grade and p95 latency.
 - `readOnlyRootFilesystem`, `allowPrivilegeEscalation: false`, all capabilities dropped
 - Minimal `python:3.12-slim` base, multi-stage build (no build tools in final image)
 - Trivy image-scanning gate in CI + weekly Dependabot updates
-- SSRF guard on the scan target (see the write-up below)
+- SSRF guard on the scan target (see the write-up below), plus an egress
+  NetworkPolicy in Kubernetes as a second layer
+- Kubernetes: PSA `restricted`, only images signed by our CI admitted
+  (Kyverno), no ServiceAccount token (see "Kubernetes hardening")
 - Per-client rate limit, concurrency cap and an overall scan deadline
   (see "Abuse protection" below)
 
@@ -380,17 +389,71 @@ silently falling back to a default.
   resets it. The fix is a shared store (Redis, which slowapi supports through
   `storage_uri`); left out to keep the deployment dependency-free.
 - **`X-Forwarded-For` is only as trustworthy as `SECSCAN_TRUSTED_PROXIES`.**
-  Anything inside the listed ranges can claim any client address.
-  `k8s/deployment.yaml` currently sets it to the whole pod CIDR
-  (`10.244.0.0/16`), which trusts **every pod in the cluster**, not just the
-  Ingress. To be narrowed in Phase 5: trust the ingress controller only, and
-  add a `NetworkPolicy` so that nothing else can reach the API at all.
+  Anything inside the listed ranges can claim any client address. In
+  Kubernetes the default is empty (port-forward has no proxy). The optional
+  ingress component sets the pod CIDR **together with** a NetworkPolicy that
+  admits only the ingress-nginx pods, so no other pod can connect and forge
+  the header.
 - The limit is per address: clients behind one NAT share a bucket, and an IPv6
   user with a whole `/64` has many addresses.
 - A cancelled DNS lookup cannot be interrupted: `getaddrinfo` keeps its worker
   thread until the OS resolver gives up. The concurrency cap bounds how many
   can pile up.
 - The concurrency cap is per process, like the rate limit.
+
+---
+
+## Kubernetes hardening
+
+```
+k8s/
+├── namespace/            # Namespace with Pod Security Admission "restricted" (enforce)
+├── base/                 # SA (no token), Deployment, Service, PDB, NetworkPolicies
+├── overlays/kind/        # pins the image to the digest CI signed
+├── policy/               # Kyverno NamespacedImageValidatingPolicy (apply first)
+└── components/ingress/   # optional: Ingress + allow only ingress-nginx + trusted proxy
+```
+
+| Layer | What | Why |
+|---|---|---|
+| Admission: PSA | namespace `restricted`, `enforce-version: v1.36` | the API server itself rejects root, privileged, host namespaces, kept capabilities |
+| Admission: Kyverno | only images **signed by this repo's `ci.yml` on `main`** (keyless: exact certificate identity + GitHub OIDC issuer, Rekor), **by digest**, for every image in the namespace | an image built anywhere else, or a moved tag, cannot run here |
+| Pod | non-root uid 10001, `readOnlyRootFilesystem`, drop `ALL`, no privilege escalation, seccomp `RuntimeDefault`, `/tmp` as a 16 Mi `emptyDir` | a compromised process has as little as possible |
+| Identity | own ServiceAccount, `automountServiceAccountToken: false`, no RBAC, `enableServiceLinks: false` | no API token to steal |
+| Availability | requests/limits (CPU, memory, ephemeral storage), startup/liveness/readiness probes, 2 replicas spread by node, PDB `minAvailable: 1` | one pod can't starve the node; drains keep the service up |
+| Network | default deny both ways; egress only DNS to kube-dns and TCP 80/443 to `0.0.0.0/0` **except** private ranges (pod CIDR, Service CIDR, nodes), `100.64/10`, link-local (`169.254.169.254`), loopback | **second SSRF layer**: even with a bug in the app guard the network won't carry the request inside the cluster |
+
+**Ingress.** There is no ingress rule in the base, so all ingress is denied.
+`kubectl port-forward` still works: the kubelet connects to the port from
+inside the pod's own network namespace, not over the pod network, so
+NetworkPolicy never sees it. Probes come from the node, which Calico always
+allows. With an ingress controller, `k8s/components/ingress` admits only the
+ingress-nginx pods on 8000 and only then trusts `X-Forwarded-For`.
+
+**Proof** (`scripts/k8s-verify.sh`, on the kind lab cluster with Calico and
+Kyverno 1.20, 2026-11-21):
+
+```
+== 1. App works (port-forward, scan https://github.com)
+  PASS scan https://github.com -> "score":83, "grade":"B"
+== 2. Network from inside the pod (raw TCP, bypassing the app)
+  PASS Kubernetes API, Service IP (10.96.0.1:443) -> BLOCKED
+  PASS Kubernetes API, endpoint (172.19.0.3:6443) -> BLOCKED
+  PASS pod in namespace demo (10.244.217.144:3000) -> BLOCKED
+  PASS Service in namespace demo (10.96.97.33:3000) -> BLOCKED
+  PASS cloud metadata (169.254.169.254:80) -> BLOCKED
+  PASS public site (github.com:443) -> OPEN
+== 3. Admission (Kyverno ImageValidatingPolicy, server dry-run)
+  PASS signed by our CI -> admitted
+  PASS unsigned -> denied: no signatures found
+  PASS signed by another identity -> denied: expected SAN value
+  PASS our image by tag, no digest -> denied: does not have a digest
+```
+
+Control run: with both NetworkPolicies deleted, the same pod **reaches**
+`10.96.0.1:443`, so the block is caused by our egress policy. (The `demo`
+pods are also closed by that namespace's own default deny, and nothing
+listens on 169.254.169.254 in kind; both checks matter on a real cloud.)
 
 ---
 
@@ -407,7 +470,8 @@ secscan/
 │   └── metrics.py        # Prometheus metrics
 ├── tests/                # pytest unit/API tests
 ├── monitoring/           # Prometheus + Grafana provisioning
-├── k8s/                  # Kubernetes manifests
+├── k8s/                  # Kustomize: base, kind overlay, Kyverno policy
+├── scripts/k8s-verify.sh # proves the K8s hardening on a live cluster
 ├── .github/workflows/    # CI/CD pipeline
 ├── Dockerfile            # multi-stage, non-root
 ├── docker-compose.yml    # api + prometheus + grafana

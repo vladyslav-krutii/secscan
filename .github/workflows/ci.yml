@@ -28,6 +28,13 @@ jobs:
         run: ruff check .
       - name: Pytest
         run: pytest -q
+      - name: Kubernetes manifests render (Kustomize)
+        # kubectl is preinstalled on the runner; fails on a broken overlay.
+        # The overlay must pin the image by digest, never by tag.
+        run: |
+          kubectl kustomize k8s/policy > /dev/null
+          kubectl kustomize k8s/overlays/kind > rendered.yaml
+          grep -E 'image: ghcr.io/.+@sha256:[0-9a-f]{64}$' rendered.yaml
 
   secrets:
     name: Secrets (Gitleaks)

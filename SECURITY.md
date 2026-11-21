@@ -26,6 +26,11 @@ please open a GitHub issue or contact the maintainer rather than exploiting it.
     --certificate-oidc-issuer https://token.actions.githubusercontent.com
   cosign verify-attestation --type spdxjson <same flags> ghcr.io/vladyslav-krutii/secscan@sha256:<digest>
   ```
+- Kubernetes (`k8s/`): Pod Security Admission `restricted`, no
+  ServiceAccount token, default-deny NetworkPolicy with egress only to DNS
+  and public 80/443 (a second SSRF layer), and a Kyverno policy that admits
+  only images signed by this repo's CI on `main`, by digest.
+  `scripts/k8s-verify.sh` proves it on a live cluster.
 - The scanner has an SSRF guard: only `http`/`https` on ports 80/443, only
   globally routable addresses, every redirect re-validated, and the connection
   pinned to the validated IP. See "Security write-up" in the README.
