@@ -29,13 +29,14 @@ every commit are in `docs/LEARNING.md`; the interview story in
 
 **Link check (2026-11-21).** All relative links and `#anchors` in the 12
 Markdown files resolve; badges, screenshots and all three Mermaid diagrams
-render on github.com. External documentation links: github.com, docs.github,
-kubernetes.io, owasp, trivy, pypi etc. return 200. Ten links on
-Netlify-hosted docs sites (kind, sigstore, kustomize, calico, kyverno) and
-starlette.io could not be reached from this machine's network (TLS
-timeout), so they are **unverified, not known broken**. A ready lychee
-workflow (separate `docs.yml`, digest-pinned, weekly + on Markdown change)
-was drafted but not added: decide whether you want it.
+render on github.com. External links are checked by the **Docs links**
+workflow (`.github/workflows/docs.yml`, lychee, weekly + on Markdown change,
+separate from CI so it never blocks a release). Its first run (e96d053)
+found 4 broken links out of 146, all in LEARNING.md: a moved Starlette site
+(now github.com/Kludex/starlette), an anchor I had invented on kyverno.io
+and two fragments lychee cannot see; fixed in the next commit. The
+Netlify-hosted docs (kind, sigstore, kyverno, …) that time out from my home
+network are fine from GitHub's runners.
 
 ## Before 2026-12-10 (the only open deadline)
 

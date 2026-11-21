@@ -274,7 +274,7 @@ PyPI/OSV. Trivy бачить тільки те, що вже лежить в об
 
 **Документація.**
 - https://github.com/fastapi/fastapi/releases
-- https://www.starlette.io/release-notes/
+- https://github.com/Kludex/starlette/releases
 - https://github.com/laurentS/slowapi/issues/271
 - https://github.com/laurentS/slowapi/issues/281
 
@@ -373,7 +373,7 @@ Grafana спершу не стартувала, бо порт 3000 був зай
 
 **Документація.**
 - https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/
-- https://docs.docker.com/reference/compose-file/services/#ports
+- https://docs.docker.com/reference/compose-file/services/
 
 ### 7021aed: SBOM (Syft) і підпис образу Cosign keyless
 
@@ -421,7 +421,7 @@ Grafana спершу не стартувала, бо порт 3000 був зай
 - https://docs.sigstore.dev/cosign/signing/signing_with_containers/
 - https://docs.sigstore.dev/cosign/verifying/verify/
 - https://docs.sigstore.dev/cosign/verifying/attestation/
-- https://github.com/anchore/syft#readme
+- https://github.com/anchore/syft
 - https://docs.github.com/en/actions/security-for-github-actions/security-hardening-your-deployments/about-security-hardening-with-openid-connect
 
 ### SECURITY.md: виправлена команда `cosign verify`
@@ -642,7 +642,6 @@ Policy застосовується **першою** (`kubectl apply -k k8s/poli
 
 **Документація.**
 - https://kyverno.io/docs/policy-types/image-validating-policy/
-- https://kyverno.io/docs/policy-types/image-validating-policy/#cosign-keyless
 - https://docs.sigstore.dev/certificate_authority/oidc-in-fulcio/
 - https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/#failure-policy
 
@@ -901,3 +900,21 @@ workflow, а не job у CI: недоступний чужий сайт не п�
 **Документація.**
 - https://lychee.cli.rs/
 - https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#schedule
+
+### Перший запуск lychee знайшов 4 зламані посилання
+
+**Що і навіщо.** З 146 посилань 138 OK, зокрема всі сайти на Netlify, які
+з домашньої мережі не відкривались. Отже проблема була в моїй мережі, а не
+в посиланнях. 4 справжні помилки, усі в цьому журналі:
+- starlette.io переїхав, тепер це `github.com/Kludex/starlette`;
+- якір `#cosign-keyless` на kyverno.io я вигадав, його не існує;
+- `#ports` на docs.docker.com і `#readme` на GitHub генеруються
+  JavaScript'ом, lychee їх не бачить; фрагменти прибрано.
+
+**Питання.**
+- *Що показав цей запуск?* — Автоматична перевірка знаходить те, що
+  пропускає людина (вигаданий якір), і відрізняє проблему мережі
+  перевіряльника від справді мертвого посилання.
+
+**Документація.**
+- https://lychee.cli.rs/
