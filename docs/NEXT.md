@@ -1,88 +1,68 @@
-# Next session: Phase 6, README, threat model, interview prep
+# Project status: DONE (2026-11-21)
 
-**Phase 5 is done (2026-11-21).** Commits d182d06 … 7edc642 (+ this one).
-- d182d06: CI builds once, pushes `:<sha>`, Trivy scans that `image@digest`,
-  Cosign signs the same digest, `:latest` moves only after verify. Closes the
-  "scanned ≠ signed" gap from slice 2.
-- aa4ad1b: Kustomize (`k8s/namespace`, `base`, `overlays/kind`), deploy by
-  digest, PSA `restricted` (enforce v1.36), own SA without token,
-  non-root/read-only/drop ALL/seccomp, requests/limits, probes, PDB.
-- f5f7b38: default-deny NetworkPolicy; egress only kube-dns + TCP 80/443 to
-  public IPs (private ranges, CGNAT, loopback, link-local excluded); optional
-  ingress component; `SECSCAN_TRUSTED_PROXIES` empty in the base.
-- eaebc92: Kyverno `NamespacedImageValidatingPolicy`: every image by digest
-  and keyless-signed by `ci.yml@refs/heads/main`, fail closed.
-- 7edc642: `scripts/k8s-verify.sh`, make targets, README section, Kustomize
-  render + digest check in CI.
+All six hardening phases are complete; `main` is green. Study notes for
+every commit are in `docs/LEARNING.md`; the interview story in
+`docs/INTERVIEW.md`; known limits and accepted risks in
+`docs/THREAT_MODEL.md`.
 
-Verified on `kind-k8s-lab` (Calico, Kyverno 1.20): all 11 checks of
-`k8s-verify.sh` pass; control run without NetworkPolicy reaches
-`10.96.0.1:443`, so the block is ours. Deployed digest:
-`sha256:91d9f165…` (pinned via `k8s-pin` after a fresh CI run).
+| Phase | What | Commits |
+|---|---|---|
+| 1 | SSRF in `/scan`: allowlist, IP pinning, redirect re-validation, test-first | 453f7dc … 352f4a6 |
+| 2 | Abuse protection: rate limit, concurrency cap, deadline, trusted proxies | cd5f592 … 18ea0c5 |
+| 3 | Value-based header grading | 09e5db3 … 124ce1d |
+| 4 | Supply chain: SHA/digest pins, Gitleaks, Semgrep, pip-audit, Trivy SARIF, SBOM, Cosign keyless | c29a066 … 3eb6331 |
+| 5 | Kubernetes: build once, Kustomize by digest, PSA, NetworkPolicy, Kyverno signature check, verify script | d182d06 … 6ba221c |
+| 6 | Presentation: README rewrite, docs split, threat model, interview notes, link check | b92aa91 … (this commit) |
 
-How to get back into the cluster (main kubeconfig is empty):
-`kind get kubeconfig --name k8s-lab > ~/.kube/kind-k8s-lab.yaml` and
-`$env:KUBECONFIG="$HOME\.kube\kind-k8s-lab.yaml"`.
+**Phase 6 done.**
+- b92aa91: deep dives moved to `docs/` (SSRF, ABUSE_PROTECTION, GRADING,
+  KUBERNETES, new SUPPLY_CHAIN); stale statements fixed.
+- ce3fc93: new test that the internal IP is logged but never returned
+  (189 tests); `k8s-verify.sh` also checks the pod from inside (no SA token,
+  read-only root FS, uid 10001): 14/14 PASS.
+- 9a3c4d9: `docs/THREAT_MODEL.md`, STRIDE per trust boundary, 29 threats →
+  control → where → evidence; accepted risks with revisit dates.
+- 5253829: `docs/INTERVIEW.md` (Ukrainian): 3-minute story, 4 hardest
+  findings, 20 Q&A, demo script.
+- 82d63d7, a5229df: README for a 2-minute read with evidence links and an
+  architecture diagram (Mermaid edge syntax fixed so it renders on GitHub).
 
-## Phase 6 plan (draft, confirm at the start)
+**Link check (2026-11-21).** All relative links and `#anchors` in the 12
+Markdown files resolve; badges, screenshots and all three Mermaid diagrams
+render on github.com. External documentation links: github.com, docs.github,
+kubernetes.io, owasp, trivy, pypi etc. return 200. Ten links on
+Netlify-hosted docs sites (kind, sigstore, kustomize, calico, kyverno) and
+starlette.io could not be reached from this machine's network (TLS
+timeout), so they are **unverified, not known broken**. A ready lychee
+workflow (separate `docs.yml`, digest-pinned, weekly + on Markdown change)
+was drafted but not added: decide whether you want it.
 
-- **README rewrite** for a reviewer with 2 minutes: what / why / proof at the
-  top (badges, one screenshot, the k8s-verify output), details below. Fix
-  stale bits (example grades table, github.com now B 83).
-- **Threat model** `docs/THREAT_MODEL.md`: STRIDE over the data flow
-  (user → API → internet; CI → GHCR → cluster). Assets, trust boundaries,
-  each threat → control → evidence (test, CI job, verify script) → residual
-  risk. Include the accepted risks and the known limits below.
-- **Architecture diagram** (Mermaid in README): request path with the
-  guards (rate limit, SSRF guard, NetworkPolicy) and the supply chain
-  (build once → scan → sign → Kyverno admission).
-- **Interview prep** `docs/INTERVIEW.md`: 2-minute pitch; 15–20 likely
-  questions with short answers (taken from LEARNING.md Q&A); "what I'd do
-  next" list; a 5-minute live demo script (compose + k8s-verify).
+## Before 2026-12-10 (the only open deadline)
 
-## Known simplifications left from Phase 5
+- zlib1g CVE-2026-85091 (HIGH) is **accepted until 2026-12-10**
+  (`.trivyignore` with `exp:`, SECURITY.md "Accepted risks"). Merge the
+  Dependabot base-image digest bump if the rebuilt image has the fix, delete
+  the ignore entry, re-pin the k8s overlay (`make k8s-pin`). Otherwise
+  re-review and extend with a reason. After the date Trivy reports it again
+  in the Security tab (SARIF), but the build gate only fails on CRITICAL, so
+  this does **not** break CI by itself: it has to be handled by hand.
 
-- No Prometheus scrape in k8s (the egress/ingress policy would need a rule
-  from the monitoring namespace).
-- Rate-limit counters are per pod (2 replicas ≈ 2× the limit); Redis would
-  fix it.
-- IPv6 egress not covered (kind cluster is IPv4-only); a dual-stack cluster
-  needs a `::/0` rule with `fc00::/7`, `fe80::/10`, `::1/128` excluded.
-- The SBOM attestation is created and verified in CI, but Kyverno checks
-  only the signature, not the attestation. No SLSA provenance yet.
-- `kubectl port-forward` bypasses NetworkPolicy by design; access to it is an
-  RBAC question (`pods/portforward`).
+## Other open items
 
-## Live check: done 2026-11-20
-
-After the FastAPI 0.165.0 / Starlette 1.10 bump, on the compose stack:
-github.com scored 83 (grade B); a 12-request burst gave 200×8 then 429×4
-(two earlier requests in the same minute also counted against 10/minute);
-Grafana "Abuse protection & SSRF guard": Rate limited (429) = 4, Total
-scans = 11, errors 0; three requests to `http://prometheus` returned 400 and
-Blocked targets (SSRF) = 3 (screenshot `docs/grafana-abuse.png`). Grafana's
-host port is now `${GRAFANA_PORT:-3000}` (3000 was taken by another
-container).
-
-## Open items from Phase 4
-
-- zlib1g CVE-2026-85091 (HIGH): **accepted until 2026-12-10** (`.trivyignore`
-  with `exp:`, SECURITY.md "Accepted risks"). Before that date: merge the
-  Dependabot base-image digest bump if the rebuilt image has the fix, then
-  delete the ignore entry; otherwise re-review and extend with a reason.
-- Starlette warns that `starlette.testclient` with `httpx` is deprecated
-  (use `httpx2`); tests still pass.
+- `starlette.testclient` with `httpx` is deprecated (use `httpx2`); tests
+  still pass.
 - Python 3.15 base image (closed Dependabot #13): revisit separately.
 
-## Known simplifications left from Phase 3 (fine for now)
+## Optional future extensions
 
-- Repeated headers: httpx joins them with `, `. Several CSPs are all enforced
-  in the browser, but we parse the joined string as one policy; a joined HSTS
-  or XFO value fails parsing and scores 0 (conservative).
-- CSP: `'strict-dynamic'`, scheme sources (`https:`, `data:`) and exact
-  `script-src` → `default-src` fallback are not evaluated; scheme sources in
-  `frame-ancestors` (e.g. `https:`) count as restricted.
-- `Content-Security-Policy-Report-Only` is ignored (it enforces nothing).
-- Permissions-Policy only checks camera / microphone / geolocation.
-- Penalty values are our own judgement (named constants in `app/rules.py`),
-  not from a standard.
+| Idea | Why it is interesting |
+|---|---|
+| **GitHub Action / CLI** (`secscan https://…`, fail CI below grade B) | turns the scanner into a reusable shift-left gate for other repos |
+| **TLS checks** (protocol versions, certificate expiry, weak ciphers) | headers are only half of transport security |
+| **Cookie flags** (`Secure`, `HttpOnly`, `SameSite`, `__Host-` prefix) | common real-world finding, fits the grading model |
+| **e2e test in CI on kind** (Calico + Kyverno, run `k8s-verify.sh`) | proves the K8s hardening on every push, not just on my laptop |
+| **Prometheus alerts** (spike in 429 / SSRF blocks, error rate, p95) | moves abuse protection from prevention to detection and response |
+| **k6 load test** | measure where the concurrency cap and limits kick in; capacity numbers for the README |
+| Redis-backed rate limit | one shared limit across replicas |
+| GitOps (Argo CD / Flux) + SLSA provenance, Kyverno checks the SBOM attestation | closes the "manual pin" and "signature only" gaps from the threat model |
+| IPv6 egress rules | needed on a dual-stack cluster |

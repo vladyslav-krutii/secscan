@@ -848,3 +848,34 @@ planned», дублікати розділів, які тепер у `docs/`.
 **Документація.**
 - https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/creating-diagrams
 - https://mermaid.js.org/syntax/flowchart.html
+
+### Перевірка посилань, Mermaid на GitHub, проєкт завершено
+
+**Що і навіщо.**
+- **Посилання.** Скрипт перевірив 12 Markdown-файлів: усі відносні
+  посилання і `#якорі` (за правилами слагів GitHub) живі. Бейджі,
+  скріншоти й діаграми рендеряться на github.com. Зовнішні посилання на
+  документацію здебільшого віддають 200. Десять адрес на сайтах із
+  хостингом Netlify (kind, sigstore, kustomize, calico, kyverno) і
+  starlette.io з цієї мережі недосяжні (TLS timeout), тому в NEXT.md вони
+  чесно позначені як «не перевірено», а не «зламано».
+- **Mermaid.** Діаграма в README не рендерилась на GitHub («Unable to
+  render rich display»). Винуватець — ребро `-.-x|blocked|`. Замінено на
+  `-. "blocked" .->`, як у двох діаграмах у `docs/`, які рендерились.
+  Перевірено на сторінці коміту: помилок 0.
+- **Проєкт DONE.** NEXT.md тепер — підсумок шести фаз, єдиний дедлайн
+  (zlib до 2026-12-10) і список опційних розширень. Уточнення: після
+  `exp:` Trivy знову покаже HIGH у вкладці Security, але gate падає лише
+  на CRITICAL, тож це треба закрити вручну.
+
+**Питання.**
+- *Як перевіряти документацію автоматично?* — Link checker (наприклад,
+  lychee) у CI: окремий workflow за розкладом, щоб недоступний чужий сайт
+  не блокував реліз.
+- *Чому «не вдалося перевірити» ≠ «зламано»?* — Помилка може бути в
+  мережі перевіряльника (проксі, TLS, DNS). Звіт має розрізняти «я довів,
+  що це не працює» і «я не зміг довести, що працює».
+
+**Документація.**
+- https://github.com/lycheeverse/lychee
+- https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/creating-diagrams
