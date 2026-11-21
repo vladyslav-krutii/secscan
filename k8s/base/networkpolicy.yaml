@@ -1,0 +1,64 @@
+# 1) Default deny: no pod in the namespace may send or receive anything
+#    unless a policy below allows it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+---
+# 2) Egress for the scanner: DNS, and HTTP(S) to the public internet only.
+#    A second SSRF layer under the app's own guard: even if the code had a
+#    bug, the network would not carry a request to the Kubernetes API,
+#    another pod, a Service or the cloud metadata endpoint.
+#
+#    Ingress: no rule here, so all ingress is denied. `kubectl port-forward`
+#    still works: the kubelet/container runtime connects to the port from
+#    inside the pod's own network namespace (loopback), which never crosses
+#    the pod network, so NetworkPolicy does not see it. Kubelet probes come
+#    from the node itself, which Calico always allows. For real ingress
+#    traffic see k8s/components/ingress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: secscan-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: secscan
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              # Private ranges. In kind they contain the pod CIDR
+              # (10.244.0.0/16), the Service CIDR (10.96.0.0/16, with the
+              # API server at 10.96.0.1) and the node network (172.19.0.0/16).
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              # Carrier-grade NAT, also used by some cloud networks.
+              - 100.64.0.0/10
+              # Link-local: cloud metadata 169.254.169.254 lives here.
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+              - 0.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443

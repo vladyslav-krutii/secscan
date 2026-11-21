@@ -535,3 +535,63 @@ Blocked targets (SSRF) = 3. Тобто захист не тільки працю
 - https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/images/
 - https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/#opt-out-of-api-credential-automounting
 - https://kubernetes.io/docs/tasks/run-application/configure-pdb/
+
+### NetworkPolicy: default deny + egress лише DNS і публічний 80/443
+
+**Що і навіщо.** Два правила в `k8s/base/networkpolicy.yaml`:
+
+1. `default-deny-all`: у namespace ніхто нічого не шле і не приймає, якщо
+   інше правило цього явно не дозволяє.
+2. `secscan-egress`: pod сканера може тільки
+   - DNS (UDP/TCP 53) до pod'ів `kube-dns` у `kube-system`;
+   - TCP 80/443 на `0.0.0.0/0` **крім** приватних діапазонів. У kind до них
+     входять pod CIDR `10.244.0.0/16`, Service CIDR `10.96.0.0/16` (тут живе
+     API server `10.96.0.1`) і мережа вузлів `172.19.0.0/16`. Також виключено
+     `100.64/10`, `127/8` і link-local `169.254/16`, де хмарні метадані
+     `169.254.169.254`.
+
+Це **другий шар захисту від SSRF**. Навіть якби guard у коді мав баг і
+пропустив `http://10.96.0.1`, мережа такий пакет не донесе. Defense in depth:
+код і інфраструктура захищають незалежно одне від одного.
+
+**Ingress (вхід).** У базі правил для ingress немає, тому вхід заборонений
+повністю. Але `kubectl port-forward` працює: kubelet і container runtime
+підключаються до порту **зсередини мережевого namespace pod'а** (через
+loopback), трафік не йде через мережу pod'ів, і NetworkPolicy його не бачить.
+Probes kubelet іде з самого вузла, а Calico трафік від свого вузла завжди
+пропускає.
+
+Для справжнього ingress є `k8s/components/ingress` (Kustomize component):
+Ingress, правило «вхід на 8000 тільки від pod'ів ingress-nginx» і
+`SECSCAN_TRUSTED_PROXIES=10.244.0.0/16`. Довіряти X-Forwarded-For від усього
+pod CIDR безпечно **лише разом** із цим правилом: інші pod'и просто не можуть
+підключитися, щоб підробити заголовок. У базі (port-forward)
+`SECSCAN_TRUSTED_PROXIES` порожній: проксі немає, тож заголовку ніхто не
+довіряє.
+
+**Контрольний експеримент.** Без обох політик той самий pod **досягає**
+`10.96.0.1:443` (OPEN), з політиками — timeout. Отже блокує саме наша
+політика. Pod'и в `demo` закриті ще й власним default-deny лабораторії, а
+`169.254.169.254` у kind нікого немає (refused). Ці дві перевірки мають сенс
+у хмарі.
+
+**Питання.**
+- *Навіщо NetworkPolicy, якщо SSRF уже закрито в коді?* — Код може мати баг
+  (DNS rebinding, новий формат IP, бібліотека змінила поведінку). Мережевий
+  шар не залежить від коду програми, і помилка в одному місці не дає повного
+  доступу. Це defense in depth.
+- *Чому `kubectl port-forward` працює попри deny-all ingress?* — NetworkPolicy
+  фільтрує трафік мережею pod'ів. Port-forward іде через API server → kubelet
+  → runtime, який підключається до порту всередині netns pod'а через
+  localhost. Тому доступ до port-forward треба контролювати через RBAC
+  (`pods/portforward`), а не через NetworkPolicy.
+- *Чому NetworkPolicy не працює в «голому» kind?* — NetworkPolicy — це лише
+  API-об'єкт. Застосовує його CNI-плагін. Стандартний kindnet цього не вміє,
+  потрібен Calico або Cilium. Без них політику буде створено, але вона нічого
+  не блокуватиме: небезпечно, бо виглядає як захист.
+
+**Документація.**
+- https://kubernetes.io/docs/concepts/services-networking/network-policies/
+- https://docs.tigera.io/calico/latest/network-policy/get-started/kubernetes-policy/kubernetes-network-policy
+- https://kubectl.docs.kubernetes.io/guides/config_management/components/
+- https://kubernetes.io/docs/reference/access-authn-authz/rbac/#referring-to-resources
