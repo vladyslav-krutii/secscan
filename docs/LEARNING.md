@@ -718,3 +718,27 @@ Kyverno, а не лише старий, перевірений вручну. О�
 **Документація.**
 - https://opengitops.dev/
 - https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#rolling-update-deployment
+
+## Фаза 6: презентація проєкту
+
+### Глибокі розділи винесено з README у `docs/`
+
+**Що і навіщо.** README розрісся до ~400 рядків: рекрутер за 2 хвилини до
+суті не дійде. Детальні розділи тепер окремі документи:
+`docs/SSRF.md` (write-up, before/after), `docs/ABUSE_PROTECTION.md`,
+`docs/KUBERNETES.md` (+ кроки деплою), `docs/GRADING.md` (+ відомі
+спрощення з NEXT.md) і новий `docs/SUPPLY_CHAIN.md` (діаграма pipeline,
+таблиця jobs «що робить / коли валить збірку», як перевірити підпис).
+Заодно виправлено застаріле: «NetworkPolicy is planned» → вже є і
+перевірено; приклад github.com тепер B / 83.
+
+**Питання.**
+- *Як структурувати документацію проєкту?* — README відповідає на «що це,
+  навіщо, як запустити, де докази». Деталі — окремі документи, на які README
+  посилається. Кожен документ має одну тему й одного читача.
+- *Навіщо таблиця «коли job валить збірку»?* — Gate, який нічого не валить,
+  — це звіт, а не контроль. Рецензенту важливо бачити, що саме блокує реліз.
+
+**Документація.**
+- https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-readmes
+- https://www.writethedocs.org/guide/writing/beginners-guide-to-docs/
