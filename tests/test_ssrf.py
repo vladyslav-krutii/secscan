@@ -207,6 +207,17 @@ def test_blocked_target_is_counted_and_logged(net, caplog):
     assert any("blocked target" in r.getMessage().lower() for r in caplog.records)
 
 
+def test_resolved_internal_address_is_logged_but_not_returned(net, caplog):
+    # The caller must not learn the internal IP a name resolves to (that would
+    # map the internal network); operators still see it in the log.
+    with caplog.at_level(logging.WARNING):
+        resp = scan("http://internal.example")
+    assert_blocked(resp)
+    assert "10.0.0.5" not in resp.text
+    reasons = [getattr(r, "extra_fields", {}).get("reason", "") for r in caplog.records]
+    assert any("10.0.0.5" in reason for reason in reasons)
+
+
 # ── Legitimate scans must keep working (guards against over-blocking) ──────
 def test_public_target_is_scanned(net):
     resp = scan("https://public.example")

@@ -65,7 +65,11 @@ Kyverno 1.20, 2026-11-21):
   PASS Service in namespace demo (10.96.97.33:3000) -> BLOCKED
   PASS cloud metadata (169.254.169.254:80) -> BLOCKED
   PASS public site (github.com:443) -> OPEN
-== 3. Admission (Kyverno ImageValidatingPolicy, server dry-run)
+== 3. Pod hardening, seen from inside
+  PASS no ServiceAccount token mounted
+  PASS root filesystem is read-only
+  PASS runs as non-root (uid 10001)
+== 4. Admission (Kyverno ImageValidatingPolicy, server dry-run)
   PASS signed by our CI -> admitted
   PASS unsigned -> denied: no signatures found
   PASS signed by another identity -> denied: expected SAN value

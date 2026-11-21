@@ -10,6 +10,7 @@
 #       - a public site on 443                              -> allowed
 #  3. Admission (Kyverno): signed digest admitted; unsigned image, image
 #     signed by someone else, and our image by tag are denied.
+#  (Section 3 also checks the pod: no SA token, read-only root FS, non-root.)
 #     Uses --dry-run=server, so nothing is actually created.
 #
 # Needs: kubectl (current context = the cluster), curl, docker (to resolve
@@ -78,7 +79,23 @@ fi
 expect BLOCKED 169.254.169.254 80 "cloud metadata"
 expect OPEN "$PUBLIC_HOST" 443 "public site"
 
-echo "== 3. Admission (Kyverno ImageValidatingPolicy, server dry-run)"
+echo "== 3. Pod hardening, seen from inside"
+pod_check() { # label, python expression that must print OK
+  got=$(kubectl -n "$NS" exec "$pod" -c api -- python -c "$2" 2>/dev/null)
+  if [ "$got" = "OK" ]; then pass "$1"; else fail "$1 -> ${got:-error}"; fi
+}
+pod_check "no ServiceAccount token mounted" \
+  'import os; print("OK" if not os.path.exists("/var/run/secrets/kubernetes.io/serviceaccount/token") else "token present")'
+pod_check "root filesystem is read-only" \
+  'import os
+try:
+    open("/app/pwned", "w"); print("writable")
+except OSError:
+    print("OK")'
+pod_check "runs as non-root (uid 10001)" \
+  'import os; print("OK" if os.getuid() == 10001 else "uid %d" % os.getuid())'
+
+echo "== 4. Admission (Kyverno ImageValidatingPolicy, server dry-run)"
 signed=$(kubectl -n "$NS" get deploy secscan -o jsonpath='{.spec.template.spec.containers[0].image}')
 digest_of() { docker buildx imagetools inspect "$1" --format '{{json .Manifest.Digest}}' | tr -d '"'; }
 unsigned="docker.io/library/busybox@$(digest_of busybox:1.37)"

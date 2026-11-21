@@ -742,3 +742,29 @@ Kyverno, а не лише старий, перевірений вручну. О�
 **Документація.**
 - https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-readmes
 - https://www.writethedocs.org/guide/writing/beginners-guide-to-docs/
+
+### Тест «внутрішній IP тільки в лозі» + перевірки pod у `k8s-verify.sh`
+
+**Що і навіщо.** Під час написання threat model з'ясувалося, що твердження
+«внутрішній IP не повертається клієнту» ніде не тестувалося, лише код і
+коментар. Новий тест: `internal.example` резолвиться в `10.0.0.5`. Відповідь
+400, у тілі IP **немає**, а в полі `reason` лог-запису **є**. Спершу тест
+упав, бо IP лежить не в тексті повідомлення, а в структурованому полі
+`extra_fields.reason` JSON-логу. Виправлено тест, не код: поведінка
+правильна. Тепер 189 тестів.
+
+`k8s-verify.sh` перевіряє ще й **сам pod зсередини**: токена
+ServiceAccount немає, запис у `/app` падає (read-only), uid = 10001.
+Разом 14 перевірок, 14/14 PASS.
+
+**Питання.**
+- *Чому важливо, щоб помилка не містила внутрішній IP?* — Інакше `/scan`
+  стає DNS-сканером внутрішньої мережі: нападник дізнається, які імена є
+  і куди вони вказують. Оператору ця інформація потрібна, тому вона в лозі.
+- *Навіщо перевіряти pod зсередини, якщо є PSA і маніфест?* — Маніфест — це
+  намір, а перевірка зсередини показує фактичний стан. Наприклад, токен міг
+  би змонтуватися через інший volume або mutating webhook.
+
+**Документація.**
+- https://owasp.org/www-community/Improper_Error_Handling
+- https://kubernetes.io/docs/tasks/debug/debug-application/get-shell-running-container/
