@@ -918,3 +918,29 @@ workflow, а не job у CI: недоступний чужий сайт не п�
 
 **Документація.**
 - https://lychee.cli.rs/
+
+### Перевірка 2026-11-22: виправлення zlib ще немає
+
+**Що і навіщо.** Перед дедлайном прийняття ризику (2026-12-10) перевірив, чи
+вийшов новий базовий образ. `docker buildx imagetools inspect
+python:3.12-slim` повертає той самий digest, що в Dockerfile, а Docker Hub
+каже, що тег востаннє оновлювався 2026-11-08, ще до того, як ми прийняли
+ризик. Тобто образ не перезбирали і zlib там старий. Нічого не міняю,
+лише записую статус і дату в NEXT.md. Ще перевірив: CI і Docs links зелені,
+відкритих PR від Dependabot немає, відкритих code-scanning alerts 0.
+
+**Питання.**
+- *Як зрозуміти, що новий образ вийшов, не завантажуючи його?* — Порівняти
+  digest тегу в реєстрі з тим, що закріплено в Dockerfile. Той самий digest
+  означає той самий вміст байт у байт, тож нового сканування не треба.
+- *Що буде 2026-12-10, якщо фіксу не буде?* — Trivy знову покаже CVE у
+  Security tab. CI не впаде, бо gate спрацьовує тільки на CRITICAL. Тому
+  треба свідомо або продовжити прийняття ризику з причиною, або зробити
+  `apt-get upgrade zlib1g` у Dockerfile.
+- *Чим Dependabot alerts відрізняються від version updates?* — Alerts
+  повідомляють про відомі CVE у залежностях. Version updates відкривають
+  PR на нові версії. У репозиторії зараз увімкнено тільки version updates.
+
+**Документація.**
+- https://docs.docker.com/reference/cli/docker/buildx/imagetools/inspect/
+- https://docs.github.com/en/code-security/dependabot/dependabot-alerts/about-dependabot-alerts

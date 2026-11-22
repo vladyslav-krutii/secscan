@@ -47,12 +47,19 @@ network are fine from GitHub's runners.
   re-review and extend with a reason. After the date Trivy reports it again
   in the Security tab (SARIF), but the build gate only fails on CRITICAL, so
   this does **not** break CI by itself: it has to be handled by hand.
+- **Check 2026-11-22: no fix yet.** `python:3.12-slim` still resolves to
+  the pinned digest `sha256:5e2bdb1b…a4fa5b` (Docker Hub: last rebuilt
+  2026-11-08, before the acceptance). No Dependabot PR open. Nothing to
+  change; re-check closer to the expiry (around 2026-12-05).
 
 ## Other open items
 
 - `starlette.testclient` with `httpx` is deprecated (use `httpx2`); tests
   still pass.
 - Python 3.15 base image (closed Dependabot #13): revisit separately.
+- Maintenance check 2026-11-22: CI and Docs links green on `main`; no open
+  Dependabot PRs; 0 open code-scanning alerts. Dependabot *alerts*
+  (repo Settings → Code security) are disabled; only version updates run.
 
 ## Optional future extensions
 
